@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::PerfBufferBuilder;
+use object::{File, Object, ObjectSymbol};
 use plain::Plain;
+use regex::Regex;
 use std::time::Duration;
 use time::{macros::format_description, OffsetDateTime};
 
@@ -56,9 +58,46 @@ fn handle_lost_events(cpu: i32, count: u64) {
     eprintln!("Lost {} events on CPU {}", count, cpu);
 }
 
-fn find_readline_so() -> String {
+fn get_elf_func_offset(path: &str, sym_name: &str) -> Result<u64> {
+    let data = std::fs::read(path)?;
+    let file = File::parse(&*data)?;
+
+    for symbol in file.dynamic_symbols() {
+        if let Ok(name) = symbol.name() {
+            if name == sym_name {
+                return Ok(symbol.address());
+            }
+        }
+    }
+
+    bail!("could not find {} in {}", sym_name, path)
+}
+
+fn find_readline_so() -> Result<(String, u64)> {
     let bash_path = "/bin/bash";
-    return bash_path.to_string();
+    let sym_name = "readline";
+
+    let offset = get_elf_func_offset(bash_path, sym_name)?;
+    if offset > 0 {
+        return Ok((bash_path.to_string(), offset));
+    }
+
+    let ldd = std::process::Command::new("ldd")
+        .arg("/bin/bash")
+        .output()?;
+    let output = std::str::from_utf8(&ldd.stdout)?;
+    let pattern = Regex::new(r"readline\.so[^ ]* => ([^ ]+)")?;
+
+    if let Some(capture) = pattern.captures_iter(output).next() {
+        let path = capture.get(1).unwrap().as_str();
+        let offset = get_elf_func_offset(path, sym_name)?;
+
+        if offset > 0 {
+            return Ok((path.to_string(), offset));
+        }
+    }
+
+    bail!("failed to find readline")
 }
 
 fn main() -> Result<()> {
@@ -74,10 +113,12 @@ fn main() -> Result<()> {
 
     let mut skel = open_skel.load()?;
 
-    let _link =
-        skel.progs_mut()
-            .printret()
-            .attach_uprobe(true, -1, "/lib64/libreadline.so.8", 107312)?;
+    let (readline, offset) = find_readline_so()?;
+
+    let _link = skel
+        .progs_mut()
+        .printret()
+        .attach_uprobe(true, -1, readline, offset as usize)?;
     // skel.attach()?;
 
     let perf = PerfBufferBuilder::new(skel.maps_mut().events())
