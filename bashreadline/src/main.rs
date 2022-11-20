@@ -46,16 +46,10 @@ fn handle_event(_cpu: i32, data: &[u8]) {
         "00:00:00".to_string()
     };
 
-    let index = event
-        .str
-        .iter()
-        .enumerate()
-        .find(|(_, &c)| c == 0)
-        .unwrap()
-        .0;
+    let index = event.str.iter().position(|&c| c == 0).unwrap();
     let task = std::str::from_utf8(&event.str[..index]).unwrap();
 
-    println!("{:-9} {:-7} {}", now, event.pid, task)
+    println!("{:<9} {:<7} {}", now, event.pid, task)
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
@@ -87,10 +81,11 @@ fn main() -> Result<()> {
     // skel.attach()?;
 
     let perf = PerfBufferBuilder::new(skel.maps_mut().events())
-        .pages(16)
         .sample_cb(handle_event)
         .lost_cb(handle_lost_events)
         .build()?;
+
+    println!("{:<9} {:<7} {}", "TIME", "PID", "COMMAND");
 
     loop {
         perf.poll(Duration::from_millis(100))?;
