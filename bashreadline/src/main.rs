@@ -109,6 +109,7 @@ fn main() -> Result<()> {
     }
 
     bump_memlock_rlimit()?;
+
     let open_skel = skel_builder.open()?;
 
     let mut skel = open_skel.load()?;
