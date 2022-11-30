@@ -1,7 +1,6 @@
 use std::{
-    borrow::BorrowMut,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    os::fd::{AsFd, AsRawFd},
+    os::fd::AsRawFd,
     time::Duration,
 };
 
