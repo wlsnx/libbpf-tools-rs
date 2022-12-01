@@ -18,6 +18,7 @@ use filetop::*;
 unsafe impl Plain for filetop_bss_types::file_stat {}
 
 #[derive(Parser, Debug)]
+#[command(about = "Trace file reads/writes by process.")]
 struct Command {
     /// Process ID to trace
     #[arg(short)]

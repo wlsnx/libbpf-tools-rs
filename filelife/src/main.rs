@@ -18,6 +18,7 @@ use filelife::*;
 unsafe impl Plain for filelife_bss_types::event {}
 
 #[derive(Debug, Parser)]
+#[command(about = "Trace the lifespan of short-lived files.")]
 struct Command {
     /// Verbose debug output
     #[arg(short)]

@@ -14,6 +14,7 @@ mod bashreadline {
 use bashreadline::*;
 
 #[derive(Debug, Parser)]
+#[command(about = "Print entered bash commands from all running shells.")]
 struct Command {
     /// the location of libreadline.so library
     #[arg(short, long)]
