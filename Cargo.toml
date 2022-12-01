@@ -3,4 +3,5 @@ members = [
   "bashreadline",
   "bindsnoop",
   "filetop",
+  "filelife",
 ]
