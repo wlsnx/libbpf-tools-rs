@@ -3,9 +3,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::PerfBufferBuilder;
-use object::{File, Object, ObjectSymbol};
 use plain::Plain;
-use regex::Regex;
 use std::{ffi::CStr, time::Duration};
 use time::{macros::format_description, OffsetDateTime};
 
