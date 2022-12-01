@@ -15,8 +15,10 @@ use bashreadline::*;
 
 #[derive(Debug, Parser)]
 struct Command {
+    /// the location of libreadline.so library
     #[arg(short, long)]
     shared: Option<String>,
+    /// Verbose debug output
     #[arg(short, long, default_value_t)]
     verbose: bool,
 }

@@ -36,16 +36,22 @@ const IPPROTO_UDP: u16 = 17;
 
 #[derive(Parser, Debug)]
 struct Command {
+    /// Include timstamp on output
     #[arg(short, long)]
     timestamp: bool,
+    /// Trace process in cgroup path
     #[arg(short, long)]
     cgroup: Option<String>,
+    /// Include errors on output
     #[arg(short = 'x', long)]
     failed: bool,
+    /// Process ID to trace
     #[arg(short, long)]
     pid: Option<u32>,
+    /// comma-separated list of ports to trace
     #[arg(short = 'P', long)]
     ports: Option<String>,
+    /// Verbose debug output
     #[arg(short, long)]
     verbose: bool,
 }

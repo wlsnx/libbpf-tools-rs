@@ -19,20 +19,28 @@ unsafe impl Plain for filetop_bss_types::file_stat {}
 
 #[derive(Parser, Debug)]
 struct Command {
+    /// Process ID to trace
     #[arg(short)]
     pid: Option<i32>,
+    /// Don't clear the screen
     #[arg(short = 'C')]
     noclear: bool,
+    /// Include special files
     #[arg(short)]
     all: bool,
+    /// Sort columns, default all [all, reads, writes, rbytes, wbytes]
     #[arg(short, default_value = "all")]
     sort: String,
+    /// Maximum rows to print, default 20
     #[arg(short, default_value = "20")]
     rows: u32,
+    /// Verbose debug output
     #[arg(short)]
     verbose: bool,
-    #[arg(last = true, default_value = "1")]
+    #[arg(default_value = "1")]
     interval: u64,
+    #[arg(default_value = "99999999")]
+    count: u64,
 }
 
 fn bump_memlock_rlimit() -> Result<()> {
