@@ -28,10 +28,10 @@ struct Command {
     /// Include special files
     #[arg(short)]
     all: bool,
-    /// Sort columns, default all [all, reads, writes, rbytes, wbytes]
+    /// Sort columns (all, reads, writes, rbytes, wbytes)
     #[arg(short, default_value = "all")]
     sort: String,
-    /// Maximum rows to print, default 20
+    /// Maximum rows to print
     #[arg(short, default_value = "20")]
     rows: u32,
     /// Verbose debug output
@@ -106,11 +106,14 @@ fn main() -> Result<()> {
 
     skel.attach()?;
 
-    loop {
+    let mut count = opts.count;
+    while count > 0 {
         sleep(Duration::from_secs(opts.interval));
         if !opts.noclear {
             print!("\x1B[2J\x1B[1;1H");
         }
         print_stat(skel.maps_mut().entries())?;
+        count -= 1;
     }
+    Ok(())
 }
