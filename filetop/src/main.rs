@@ -57,31 +57,39 @@ fn bump_memlock_rlimit() -> Result<()> {
     Ok(())
 }
 
-fn print_stat(map: &mut Map) -> Result<()> {
+fn print_stat(map: &mut Map, rows: u32) -> Result<()> {
+    let mut rows = rows;
+
     println!(
         "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} {}",
         "TID", "COMM", "READS", "WRITES", "R_KB", "W_KB", "T", "FILE"
     );
+
     let keys: Vec<_> = map.keys().collect();
     for key in keys {
         let value = map.lookup(&key, MapFlags::ANY)?.unwrap();
         map.delete(&key)?;
 
-        let mut file_stat = filetop_bss_types::file_stat::default();
-        file_stat
-            .copy_from_bytes(&value)
-            .expect("Data buffer was too short");
-        println!(
-            "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} {}",
-            file_stat.tid,
-            CStr::from_bytes_until_nul(&file_stat.comm)?.to_str()?,
-            file_stat.reads,
-            file_stat.writes,
-            file_stat.read_bytes / 1024,
-            file_stat.write_bytes / 1024,
-            char::from_u32(file_stat._type as u32).unwrap(),
-            CStr::from_bytes_until_nul(&file_stat.filename)?.to_str()?,
-        );
+        if rows > 0 {
+            let mut file_stat = filetop_bss_types::file_stat::default();
+            file_stat
+                .copy_from_bytes(&value)
+                .expect("Data buffer was too short");
+
+            println!(
+                "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} {}",
+                file_stat.tid,
+                CStr::from_bytes_until_nul(&file_stat.comm)?.to_str()?,
+                file_stat.reads,
+                file_stat.writes,
+                file_stat.read_bytes / 1024,
+                file_stat.write_bytes / 1024,
+                char::from_u32(file_stat._type as u32).unwrap(),
+                CStr::from_bytes_until_nul(&file_stat.filename)?.to_str()?,
+            );
+
+            rows -= 1;
+        }
     }
     Ok(())
 }
@@ -113,7 +121,7 @@ fn main() -> Result<()> {
         if !opts.noclear {
             print!("\x1B[2J\x1B[1;1H");
         }
-        print_stat(skel.maps_mut().entries())?;
+        print_stat(skel.maps_mut().entries(), opts.rows)?;
         count -= 1;
     }
     Ok(())
