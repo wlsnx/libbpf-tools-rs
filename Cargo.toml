@@ -4,4 +4,5 @@ members = [
   "bindsnoop",
   "filetop",
   "filelife",
+  "tcpstates",
 ]
