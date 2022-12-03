@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::{Map, MapFlags, PerfBufferBuilder};
 use plain::Plain;
+use regex::Regex;
 use std::mem::size_of_val;
 use std::thread::sleep;
 use std::time::Duration;
@@ -69,11 +70,35 @@ fn bump_memlock_rlimit() -> Result<()> {
     Ok(())
 }
 
-fn handle_event(_cpu: i32, data: &[u8], opts: &Command, start_time: &SystemTime) {
+fn handle_event(
+    _cpu: i32,
+    data: &[u8],
+    opts: &Command,
+    start_time: &SystemTime,
+    name_regex: &Option<Regex>,
+    line_regex: &Option<Regex>,
+) {
     let mut event = execsnoop_rodata_types::event::default();
     let mut data = data.to_vec();
     data.extend(vec![0; 7680]);
     plain::copy_from_bytes(&mut event, &data).expect("Data buffer was too short");
+
+    let comm = CStr::from_bytes_until_nul(&event.comm)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    if let Some(regex) = name_regex {
+        if !regex.is_match(comm) {
+            return;
+        }
+    }
+
+    let args = join_args(event, opts);
+    if let Some(regex) = line_regex {
+        if !regex.is_match(&args) {
+            return;
+        }
+    }
 
     let now = if let Ok(now) = OffsetDateTime::now_local() {
         let format = format_description!("[hour]:[minute]:[second]");
@@ -98,20 +123,13 @@ fn handle_event(_cpu: i32, data: &[u8], opts: &Command, start_time: &SystemTime)
         print!("{:<6} ", event.uid);
     }
 
-    print!(
-        "{:<16} {:<6} {:<6} {:3} ",
-        CStr::from_bytes_until_nul(&event.comm)
-            .unwrap()
-            .to_str()
-            .unwrap(),
-        event.pid,
-        event.ppid,
-        event.retval
+    println!(
+        "{:<16} {:<6} {:<6} {:3} {}",
+        comm, event.pid, event.ppid, event.retval, args,
     );
-    print_args(event, opts);
 }
 
-fn print_args(event: execsnoop_rodata_types::event, opts: &Command) {
+fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
     let args: Vec<_> = event
         .args
         .splitn(event.args_count as usize, |&c| c == 0)
@@ -133,7 +151,7 @@ fn print_args(event: execsnoop_rodata_types::event, opts: &Command) {
     if event.args_count == opts.max_args + 1 {
         args_str.push_str(" ...");
     }
-    println!("{}", args_str);
+    args_str
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
@@ -164,8 +182,13 @@ fn main() -> Result<()> {
 
     skel.attach()?;
 
+    let name_regex = opts.name.as_ref().map(|name| Regex::new(name).unwrap());
+    let line_regex = opts.line.as_ref().map(|line| Regex::new(line).unwrap());
+
     let perf = PerfBufferBuilder::new(skel.maps_mut().events())
-        .sample_cb(|cpu, data| handle_event(cpu, data, &opts, &start_time))
+        .sample_cb(|cpu, data| {
+            handle_event(cpu, data, &opts, &start_time, &name_regex, &line_regex)
+        })
         .lost_cb(handle_lost_events)
         .build()?;
 
