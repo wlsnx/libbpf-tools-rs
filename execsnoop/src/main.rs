@@ -40,7 +40,7 @@ struct Command {
     #[arg(short)]
     name: Option<String>,
     /// only print commands where arg contains this line
-    #[arg(default_value = "1")]
+    #[arg(short, default_value = "1")]
     line: Option<String>,
     /// print UID column
     #[arg(short = 'U')]
