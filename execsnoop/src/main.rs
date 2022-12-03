@@ -135,10 +135,7 @@ fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
         .splitn(event.args_count as usize, |&c| c == 0)
         .map(|arg| {
             let str = std::str::from_utf8(arg).unwrap();
-            let str = str
-                .replace("\t", "\\t")
-                .replace("\n", "\\n")
-                .replace("\"", "\\\"");
+            let str = str.escape_debug().to_string();
             if str.contains(" ") {
                 format!("\"{}\"", str)
             } else {
