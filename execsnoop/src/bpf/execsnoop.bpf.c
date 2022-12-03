@@ -69,6 +69,7 @@ int tracepoint__syscalls__sys_enter_execve(
   event->ppid = (pid_t)BPF_CORE_READ(task, real_parent, tgid);
   event->args_count = 0;
   event->args_size = 0;
+  bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
   ret =
       bpf_probe_read_user_str(event->args, ARGSIZE, (const char *)ctx->args[0]);
@@ -133,7 +134,7 @@ int tracepoint__syscalls__sys_exit_execve(
     goto cleanup;
 
   event->retval = ret;
-  bpf_get_current_comm(&event->comm, sizeof(event->comm));
+  /* bpf_get_current_comm(&event->comm, sizeof(event->comm)); */
   size_t len = EVENT_SIZE(event);
   if (len <= sizeof(*event))
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, event, len);
