@@ -132,11 +132,13 @@ fn handle_event(
 fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
     let args: Vec<_> = event
         .args
-        .splitn(event.args_count as usize, |&c| c == 0)
+        .split(|&c| c == 0)
+        .take(event.args_count as usize)
         .map(|arg| {
             let str = std::str::from_utf8(arg).unwrap();
+            let len = str.len();
             let str = str.escape_debug().to_string();
-            if str.contains(" ") {
+            if str.contains(" ") || str.len() != len {
                 format!("\"{}\"", str)
             } else {
                 str
