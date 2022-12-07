@@ -22,38 +22,38 @@ unsafe impl Plain for execsnoop_rodata_types::event {}
 #[command(about = "Trace exec syscalls")]
 struct Command {
     /// include time column on output (HH:MM:SS)
-    #[arg(short = 'T')]
+    #[arg(short = 'T', long)]
     time: bool,
     /// include timestamp on output
-    #[arg(short = 't')]
+    #[arg(short = 't', long)]
     timestamp: bool,
     /// include failed exec()s
-    #[arg(short)]
+    #[arg(short = 'x', long)]
     fails: bool,
     /// trace this UID only
-    #[arg(short)]
+    #[arg(short, long)]
     uid: Option<u32>,
     /// Add quotemarks (") around arguments
-    #[arg(short)]
+    #[arg(short, long)]
     quote: bool,
     /// only print commands matching this name, any arg
-    #[arg(short)]
+    #[arg(short, long)]
     name: Option<String>,
     /// only print commands where arg contains this line
-    #[arg(short)]
+    #[arg(short, long)]
     line: Option<String>,
     /// print UID column
-    #[arg(short = 'U')]
+    #[arg(short = 'U', long)]
     print_uid: bool,
     /// maximun number of arguments parsed and displayed
     #[arg(long, default_value = "20")]
     max_args: i32,
     /// Verbose debug output
-    #[arg(short)]
+    #[arg(short, long)]
     verbose: bool,
     /// Trace process in cgroup path
-    #[arg(short)]
-    cgroup: bool,
+    #[arg(short, long)]
+    cgroup: Option<String>,
 }
 
 fn bump_memlock_rlimit() -> Result<()> {
