@@ -2,10 +2,9 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{PerfBufferBuilder};
+use libbpf_rs::PerfBufferBuilder;
 use plain::Plain;
 use regex::Regex;
-
 
 use std::time::Duration;
 use std::{ffi::CStr, time::SystemTime};
@@ -41,7 +40,7 @@ struct Command {
     #[arg(short)]
     name: Option<String>,
     /// only print commands where arg contains this line
-    #[arg(short, default_value = "1")]
+    #[arg(short)]
     line: Option<String>,
     /// print UID column
     #[arg(short = 'U')]
