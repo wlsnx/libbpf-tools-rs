@@ -2,10 +2,12 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::PerfBufferBuilder;
+use libbpf_rs::{MapFlags, PerfBufferBuilder};
 use plain::Plain;
 use regex::Regex;
 
+use std::fs::File;
+use std::os::fd::AsRawFd;
 use std::time::Duration;
 use std::{ffi::CStr, time::SystemTime};
 use time::{macros::format_description, OffsetDateTime};
@@ -25,7 +27,7 @@ struct Command {
     #[arg(short = 'T', long)]
     time: bool,
     /// include timestamp on output
-    #[arg(short = 't', long)]
+    #[arg(short, long)]
     timestamp: bool,
     /// include failed exec()s
     #[arg(short = 'x', long)]
@@ -52,7 +54,7 @@ struct Command {
     #[arg(short, long)]
     verbose: bool,
     /// Trace process in cgroup path
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "PATH")]
     cgroup: Option<String>,
 }
 
@@ -174,9 +176,21 @@ fn main() -> Result<()> {
         open_skel.rodata().targ_uid = uid;
     }
     open_skel.rodata().max_args = opts.max_args;
-    open_skel.rodata().filter_cg = opts.cgroup;
+
+    if opts.cgroup.is_some() {
+        open_skel.rodata().filter_cg = true;
+    }
 
     let mut skel = open_skel.load()?;
+
+    if let Some(ref cgroupspath) = opts.cgroup {
+        let cgfd = File::open(cgroupspath)?;
+        skel.maps_mut().cgroup_map().update(
+            &[0; 4],
+            &cgfd.as_raw_fd().to_ne_bytes(),
+            MapFlags::ANY,
+        )?;
+    }
 
     skel.attach()?;
 
