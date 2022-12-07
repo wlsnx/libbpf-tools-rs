@@ -2,11 +2,11 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{Map, MapFlags, PerfBufferBuilder};
+use libbpf_rs::{PerfBufferBuilder};
 use plain::Plain;
 use regex::Regex;
-use std::mem::size_of_val;
-use std::thread::sleep;
+
+
 use std::time::Duration;
 use std::{ffi::CStr, time::SystemTime};
 use time::{macros::format_description, OffsetDateTime};
