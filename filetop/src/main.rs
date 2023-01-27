@@ -7,7 +7,6 @@ use plain::Plain;
 use std::ffi::CStr;
 use std::thread::sleep;
 use std::time::Duration;
-// use time::{macros::format_description, OffsetDateTime};
 
 mod filetop {
     include!(concat!(env!("OUT_DIR"), "/filetop.skel.rs"));

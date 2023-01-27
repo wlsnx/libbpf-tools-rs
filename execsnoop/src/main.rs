@@ -10,7 +10,6 @@ use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::time::Duration;
 use std::{ffi::CStr, time::SystemTime};
-use time::{macros::format_description, OffsetDateTime};
 
 mod execsnoop {
     include!(concat!(env!("OUT_DIR"), "/execsnoop.skel.rs"));
@@ -101,13 +100,7 @@ fn handle_event(
         }
     }
 
-    let now = if let Ok(now) = OffsetDateTime::now_local() {
-        let format = format_description!("[hour]:[minute]:[second]");
-        now.format(&format)
-            .unwrap_or_else(|_| "00:00:00".to_string())
-    } else {
-        "00:00:00".to_string()
-    };
+    let now = chrono::Local::now();
 
     if opts.time {
         print!("{:<8} ", now);

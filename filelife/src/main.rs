@@ -5,7 +5,6 @@ use clap::Parser;
 use libbpf_rs::PerfBufferBuilder;
 use plain::Plain;
 use std::{ffi::CStr, time::Duration};
-use time::{macros::format_description, OffsetDateTime};
 
 mod filelife {
     include!(concat!(env!("OUT_DIR"), "/filelife.skel.rs"));
@@ -43,13 +42,7 @@ fn handle_event(_cpu: i32, data: &[u8]) {
     let mut event = filelife_bss_types::event::default();
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
-    let now = if let Ok(now) = OffsetDateTime::now_local() {
-        let format = format_description!("[hour]:[minute]:[second]");
-        now.format(&format)
-            .unwrap_or_else(|_| "00:00:00".to_string())
-    } else {
-        "00:00:00".to_string()
-    };
+    let now = chrono::Local::now();
 
     println!(
         "{:<8} {:<6} {:<16} {:<7.2} {}",

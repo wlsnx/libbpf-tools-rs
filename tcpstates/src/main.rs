@@ -11,7 +11,6 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     time::Duration,
 };
-use time::{macros::format_description, OffsetDateTime};
 
 mod tcpstates {
     include!(concat!(env!("OUT_DIR"), "/tcpstates.skel.rs"));
@@ -85,13 +84,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool, ip_len: usize) {
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
     if emit_timestamp {
-        let now = if let Ok(now) = OffsetDateTime::now_local() {
-            let format = format_description!("[hour]:[minute]:[second]");
-            now.format(&format)
-                .unwrap_or_else(|_| "00:00:00".to_string())
-        } else {
-            "00:00:00".to_string()
-        };
+        let now = chrono::Local::now();
         print!("{:<8} ", now);
     }
     let saddr;

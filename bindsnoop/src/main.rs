@@ -1,3 +1,5 @@
+#![feature(cstr_from_bytes_until_nul)]
+
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::AsRawFd,
@@ -8,7 +10,6 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::{MapFlags, PerfBufferBuilder};
 use plain::Plain;
-use time::{macros::format_description, OffsetDateTime};
 
 mod bindsnoop {
     include!(concat!(env!("OUT_DIR"), "/bindsnoop.skel.rs"));
@@ -62,13 +63,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
     if emit_timestamp {
-        let now = if let Ok(now) = OffsetDateTime::now_local() {
-            let format = format_description!("[hour]:[minute]:[second]");
-            now.format(&format)
-                .unwrap_or_else(|_| "00:00:00".to_string())
-        } else {
-            "00:00:00".to_string()
-        };
+        let now = chrono::Local::now();
         print!("{:8} ", now);
     }
 
@@ -92,7 +87,10 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
         _ => unreachable!(),
     };
 
-    let task = std::str::from_utf8(&event.task).unwrap();
+    let task = std::ffi::CStr::from_bytes_until_nul(&event.task)
+        .unwrap()
+        .to_str()
+        .unwrap();
 
     println!(
         "{:<7} {:<16} {:<3} {:<5} {:<5} {:<4} {:<5} {:<48}",

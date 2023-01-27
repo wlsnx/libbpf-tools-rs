@@ -5,7 +5,6 @@ use object::{File, Object, ObjectSymbol};
 use plain::Plain;
 use regex::Regex;
 use std::time::Duration;
-use time::{macros::format_description, OffsetDateTime};
 
 mod bashreadline {
     include!(concat!(env!("OUT_DIR"), "/bashreadline.skel.rs"));
@@ -43,13 +42,7 @@ fn handle_event(_cpu: i32, data: &[u8]) {
     let mut event = bashreadline_bss_types::str_t::default();
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
-    let now = if let Ok(now) = OffsetDateTime::now_local() {
-        let format = format_description!("[hour]:[minute]:[second]");
-        now.format(&format)
-            .unwrap_or_else(|_| "00:00:00".to_string())
-    } else {
-        "00:00:00".to_string()
-    };
+    let now = chrono::Local::now();
 
     let index = event.str.iter().position(|&c| c == 0).unwrap();
     let task = std::str::from_utf8(&event.str[..index]).unwrap();

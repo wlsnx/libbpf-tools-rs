@@ -7,14 +7,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
+chrono = "0.4.23"
 clap = { version = "4.0.26", features = ["derive"] }
 libbpf-rs = "0.19.1"
 libbpf-sys = "1.0.4"
 libc = "0.2.137"
 object = "0.29.0"
 plain = "0.2.3"
-regex = "1.7.0"
-time = { version = "0.3.17", features = ["formatting", "macros", "local-offset"] }
 
 [build-dependencies]
 libbpf-cargo = "0.13.1"
