@@ -42,7 +42,7 @@ fn handle_event(_cpu: i32, data: &[u8]) {
     let mut event = filelife_bss_types::event::default();
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
-    let now = chrono::Local::now();
+    let now = chrono::Local::now().format("%H:%M:%S");
 
     println!(
         "{:<8} {:<6} {:<16} {:<7.2} {}",

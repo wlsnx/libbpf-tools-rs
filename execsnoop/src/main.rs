@@ -100,7 +100,7 @@ fn handle_event(
         }
     }
 
-    let now = chrono::Local::now();
+    let now = chrono::Local::now().format("%H:%M:%S");
 
     if opts.time {
         print!("{:<8} ", now);

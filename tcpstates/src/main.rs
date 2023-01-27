@@ -84,7 +84,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool, ip_len: usize) {
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
     if emit_timestamp {
-        let now = chrono::Local::now();
+        let now = chrono::Local::now().format("%H:%M:%S");
         print!("{:<8} ", now);
     }
     let saddr;

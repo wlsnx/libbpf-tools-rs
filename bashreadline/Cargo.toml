@@ -12,7 +12,6 @@ clap = { version = "4.0.26", features = ["derive"] }
 libbpf-rs = { git = "https://github.com/libbpf/libbpf-rs" }
 libbpf-sys = "1.0.4"
 libc = "0.2.137"
-object = "0.29.0"
 plain = "0.2.3"
 regex = "1.7.0"
 
