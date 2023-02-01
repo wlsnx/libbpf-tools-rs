@@ -9,6 +9,7 @@ fn main() {
     out.push("bashreadline.skel.rs");
     SkeletonBuilder::new()
         .source(SRC)
+        .clang_args("-fno-stack-protector")
         .build_and_generate(&out)
         .unwrap();
     println!("cargo:rerun-if-changed={}", SRC);
