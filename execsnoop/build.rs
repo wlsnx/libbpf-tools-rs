@@ -9,6 +9,8 @@ fn main() {
     out.push("execsnoop.skel.rs");
     SkeletonBuilder::new()
         .source(SRC)
+        .clang_args("-fno-stack-protector")
+        .clang_args("-fno-stack-protector")
         .build_and_generate(&out)
         .unwrap();
     println!("cargo:rerun-if-changed={}", SRC);
