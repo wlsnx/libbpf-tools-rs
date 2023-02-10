@@ -64,7 +64,7 @@ fn handle_event(data: &[u8], len: usize) -> i32 {
         // .with_base(base)
         .build();
     printer.print_all(&data[..len.min(data.len())]).unwrap();
-    return 0;
+    0
 }
 
 #[derive(Parser)]
@@ -96,8 +96,8 @@ fn main() -> Result<()> {
 
     if let Some(attach) = &command.attach {
         let mut links = Vec::new();
-        for attach_option in attach.split(",") {
-            let mut split = attach_option.split(":");
+        for attach_option in attach.split(',') {
+            let mut split = attach_option.split(':');
             let path = split.next().unwrap();
             for func_name in split {
                 let opts = UprobeOpts {

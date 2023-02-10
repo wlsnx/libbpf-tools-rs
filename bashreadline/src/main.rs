@@ -50,7 +50,7 @@ fn handle_event(_cpu: i32, data: &[u8]) {
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {} events on CPU {}", count, cpu);
+    eprintln!("Lost {count} events on CPU {cpu}");
 }
 
 fn main() -> Result<()> {
@@ -85,7 +85,7 @@ fn main() -> Result<()> {
     } else {
         skel.progs_mut()
             .printret()
-            .attach_uprobe_with_opts(-1, "/bin/bash", 0, opts.clone())?
+            .attach_uprobe_with_opts(-1, "/bin/bash", 0, opts)?
     };
 
     let perf = PerfBufferBuilder::new(skel.maps_mut().events())
@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         .lost_cb(handle_lost_events)
         .build()?;
 
-    println!("{:<9} {:<7} {}", "TIME", "PID", "COMMAND");
+    println!("{:<9} {:<7} COMMAND", "TIME", "PID");
 
     loop {
         perf.poll(Duration::from_millis(100))?;

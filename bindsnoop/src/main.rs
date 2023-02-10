@@ -64,7 +64,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
 
     if emit_timestamp {
         let now = chrono::Local::now().format("%H:%M:%S");
-        print!("{:8} ", now);
+        print!("{now:8} ");
     }
 
     let proto = match event.proto {
@@ -74,9 +74,9 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
     };
 
     let mut opts = ['F', 'T', 'N', 'R', 'r'];
-    for i in 0..5 {
+    for (i, flag) in opts.iter_mut().enumerate() {
         if ((1 << i) & event.opts) == 0 {
-            opts[i] = '.';
+            *flag = '.';
         }
     }
     let opts: String = opts.iter().collect();
@@ -99,7 +99,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
 }
 
 fn handle_lost_events(cpu: i32, lost_cnt: u64) {
-    println!("lost {} events on CPU #{}", lost_cnt, cpu);
+    println!("lost {lost_cnt} events on CPU #{cpu}");
 }
 
 fn main() -> Result<()> {
@@ -133,7 +133,7 @@ fn main() -> Result<()> {
     }
 
     if let Some(ports) = opts.ports {
-        for port in ports.split(",") {
+        for port in ports.split(',') {
             let port_num: u16 = port.parse()?;
             skel.maps_mut().ports().update(
                 &port_num.to_ne_bytes(),

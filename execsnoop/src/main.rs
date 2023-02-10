@@ -103,7 +103,7 @@ fn handle_event(
     let now = chrono::Local::now().format("%H:%M:%S");
 
     if opts.time {
-        print!("{:<8} ", now);
+        print!("{now:<8} ");
     }
 
     if opts.timestamp {
@@ -132,8 +132,8 @@ fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
             let str = std::str::from_utf8(arg).unwrap();
             let len = str.len();
             let str = str.escape_debug().to_string();
-            if str.contains(" ") || str.len() != len {
-                format!("\"{}\"", str)
+            if str.contains(' ') || str.len() != len {
+                format!("\"{str}\"")
             } else {
                 str
             }
@@ -148,7 +148,7 @@ fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {} events on CPU {}", count, cpu);
+    eprintln!("Lost {count} events on CPU {cpu}");
 }
 
 fn main() -> Result<()> {
@@ -208,8 +208,8 @@ fn main() -> Result<()> {
     }
 
     println!(
-        "{:<16} {:<6} {:<6} {:3} {}",
-        "PCOMM", "PID", "PPID", "RET", "ARGS"
+        "{:<16} {:<6} {:<6} {:3} ARGS",
+        "PCOMM", "PID", "PPID", "RET"
     );
     loop {
         perf.poll(Duration::from_millis(100))?;

@@ -85,7 +85,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool, ip_len: usize) {
 
     if emit_timestamp {
         let now = chrono::Local::now().format("%H:%M:%S");
-        print!("{:<8} ", now);
+        print!("{now:<8} ");
     }
     let saddr;
     let daddr;
@@ -113,7 +113,7 @@ fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool, ip_len: usize) {
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {} events on CPU {}", count, cpu);
+    eprintln!("Lost {count} events on CPU {cpu}");
 }
 
 fn main() -> Result<()> {
@@ -147,7 +147,7 @@ fn main() -> Result<()> {
     let mut skel = open_skel.load()?;
 
     if let Some(sport) = opts.sport {
-        for port in sport.split(",") {
+        for port in sport.split(',') {
             let port_num = port.parse::<u16>()?;
             skel.maps_mut().sports().update(
                 &port_num.to_ne_bytes(),
@@ -158,7 +158,7 @@ fn main() -> Result<()> {
     }
 
     if let Some(dport) = opts.dport {
-        for port in dport.split(",") {
+        for port in dport.split(',') {
             let port_num = port.parse::<u16>()?;
             skel.maps_mut().dports().update(
                 &port_num.to_ne_bytes(),

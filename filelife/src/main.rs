@@ -61,7 +61,7 @@ fn handle_event(_cpu: i32, data: &[u8]) {
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {} events on CPU {}", count, cpu);
+    eprintln!("Lost {count} events on CPU {cpu}");
 }
 
 fn main() -> Result<()> {
@@ -90,8 +90,8 @@ fn main() -> Result<()> {
         .build()?;
 
     println!(
-        "{:<8} {:<6} {:<16} {:<7} {}",
-        "TIME", "PID", "COMM", "AGE(s)", "FILE"
+        "{:<8} {:<6} {:<16} {:<7} FILE",
+        "TIME", "PID", "COMM", "AGE(s)"
     );
 
     loop {

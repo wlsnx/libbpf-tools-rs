@@ -60,8 +60,8 @@ fn print_stat(map: &mut Map, rows: u32) -> Result<()> {
     let mut rows = rows;
 
     println!(
-        "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} {}",
-        "TID", "COMM", "READS", "WRITES", "R_KB", "W_KB", "T", "FILE"
+        "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} FILE",
+        "TID", "COMM", "READS", "WRITES", "R_KB", "W_KB", "T"
     );
 
     let keys: Vec<_> = map.keys().collect();
