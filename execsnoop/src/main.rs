@@ -47,7 +47,7 @@ struct Command {
     #[arg(short = 'U', long)]
     print_uid: bool,
     /// maximun number of arguments parsed and displayed
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "60")]
     max_args: i32,
     /// Verbose debug output
     #[arg(short, long)]
