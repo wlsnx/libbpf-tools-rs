@@ -7,4 +7,5 @@ members = [
   "tcpstates",
   "execsnoop",
   "sslsnoop",
+  "opensnoop",
 ]
