@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::RingBufferBuilder;
-use std::ffi::CStr;
+use plain::Plain;
+use std::collections::HashMap;
+use std::fs::{read_dir, read_link};
 use std::ptr;
 use std::time::Duration;
 
@@ -11,6 +13,8 @@ mod writesnoop {
 
 use writesnoop::*;
 
+unsafe impl Plain for writesnoop_bss_types::event {}
+
 #[derive(Parser, Debug)]
 #[command(about = "Trace write syscalls")]
 struct Command {
@@ -19,6 +23,9 @@ struct Command {
     /// only print commands matching this name
     #[arg(short, long)]
     name: Option<String>,
+    /// show path
+    #[arg(short = 'P', long)]
+    path: bool,
     /// Verbose debug output
     #[arg(short, long)]
     verbose: bool,
@@ -37,12 +44,37 @@ fn bump_memlock_rlimit() -> Result<()> {
     Ok(())
 }
 
-fn handle_event(data: &[u8]) -> i32 {
-    let mut data = data.to_vec();
-    data.push(0);
+fn handle_event(data: &[u8], path: bool, fds: &mut HashMap<(i32, i32), String>) -> i32 {
+    let mut event = writesnoop_bss_types::event::default();
+    event.copy_from_bytes(data).unwrap();
+    if path {
+        if !fds.contains_key(&(event.pid, event.fd)) {
+            for entry in read_dir(format!("/proc/{}/fd", event.pid)).unwrap() {
+                let fd = entry.unwrap();
+                fds.insert(
+                    (
+                        event.pid,
+                        fd.path()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .parse()
+                            .unwrap(),
+                    ),
+                    read_link(fd.path().to_str().unwrap())
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
+        let path = fds.get(&(event.pid, event.fd)).unwrap();
+        println!("{}:", path);
+    }
     print!(
         "{}",
-        CStr::from_bytes_until_nul(&data).unwrap().to_string_lossy()
+        String::from_utf8_lossy(&event.data[..event.count as _])
     );
     return 0;
 }
@@ -76,8 +108,11 @@ fn main() -> Result<()> {
     let mut skel = open_skel.load()?;
     skel.attach()?;
 
+    let mut fds = HashMap::new();
     let mut ringbuf_builder = RingBufferBuilder::new();
-    ringbuf_builder.add(skel.maps_mut().events(), handle_event)?;
+    ringbuf_builder.add(skel.maps_mut().events(), |data| {
+        handle_event(data, opts.path, &mut fds)
+    })?;
     let ringbuf = ringbuf_builder.build()?;
 
     loop {
