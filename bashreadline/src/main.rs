@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{PerfBufferBuilder, UprobeOpts};
+use libbpf_rs::{
+    skel::{OpenSkel, SkelBuilder},
+    PerfBufferBuilder, UprobeOpts,
+};
 use plain::Plain;
 use regex::Regex;
 use std::time::Duration;

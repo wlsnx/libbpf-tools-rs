@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::RingBufferBuilder;
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    RingBufferBuilder,
+};
 use plain::Plain;
 use std::collections::HashMap;
 use std::fs::{read_dir, read_link};
@@ -76,7 +79,7 @@ fn handle_event(data: &[u8], path: bool, fds: &mut HashMap<(i32, i32), String>) 
         "{}",
         String::from_utf8_lossy(&event.data[..event.count as _])
     );
-    return 0;
+    0
 }
 
 fn main() -> Result<()> {
@@ -110,7 +113,8 @@ fn main() -> Result<()> {
 
     let mut fds = HashMap::new();
     let mut ringbuf_builder = RingBufferBuilder::new();
-    ringbuf_builder.add(skel.maps_mut().events(), |data| {
+    let mut maps = skel.maps_mut();
+    ringbuf_builder.add(maps.events(), |data| {
         handle_event(data, opts.path, &mut fds)
     })?;
     let ringbuf = ringbuf_builder.build()?;

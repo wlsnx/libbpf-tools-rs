@@ -1,15 +1,15 @@
-#![feature(cstr_from_bytes_until_nul)]
-
+use anyhow::{bail, Result};
+use clap::Parser;
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    MapFlags, PerfBufferBuilder,
+};
+use plain::Plain;
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::AsRawFd,
     time::Duration,
 };
-
-use anyhow::{bail, Result};
-use clap::Parser;
-use libbpf_rs::{MapFlags, PerfBufferBuilder};
-use plain::Plain;
 
 mod bindsnoop {
     include!(concat!(env!("OUT_DIR"), "/bindsnoop.skel.rs"));

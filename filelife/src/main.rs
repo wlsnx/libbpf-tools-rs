@@ -1,5 +1,3 @@
-#![feature(cstr_from_bytes_until_nul)]
-
 use anyhow::{bail, Result};
 use clap::Parser;
 use libbpf_rs::PerfBufferBuilder;

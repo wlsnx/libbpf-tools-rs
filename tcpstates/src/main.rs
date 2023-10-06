@@ -1,8 +1,9 @@
-#![feature(cstr_from_bytes_until_nul)]
-
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{MapFlags, PerfBufferBuilder};
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    MapFlags, PerfBufferBuilder,
+};
 use libc::{AF_INET, AF_INET6};
 use phf::{phf_map, Map};
 use plain::Plain;

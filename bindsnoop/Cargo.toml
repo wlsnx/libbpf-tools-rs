@@ -9,11 +9,11 @@ edition = "2021"
 anyhow = "1.0.66"
 chrono = "0.4.23"
 clap = { version = "4.0.26", features = ["derive"] }
-libbpf-rs = "0.19.1"
+libbpf-rs = "0.21.2"
 libbpf-sys = "1.0.4"
 libc = "0.2.137"
 object = "0.29.0"
 plain = "0.2.3"
 
 [build-dependencies]
-libbpf-cargo = "0.13.1"
+libbpf-cargo = "0.21.2"

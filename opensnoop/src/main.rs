@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::PerfBufferBuilder;
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    PerfBufferBuilder,
+};
 use plain::Plain;
 
 use std::ffi::CStr;
@@ -146,7 +149,7 @@ fn main() -> Result<()> {
         print!("{:<7}", "UID");
     }
     if opts.extended_fields {
-        print!("{:<8} {} ", "FLAGS", "PATH");
+        print!("{:<8} PATH ", "FLAGS");
     }
 
     loop {

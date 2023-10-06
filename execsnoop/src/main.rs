@@ -1,8 +1,9 @@
-#![feature(cstr_from_bytes_until_nul)]
-
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{MapFlags, PerfBufferBuilder};
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    MapFlags, PerfBufferBuilder,
+};
 use plain::Plain;
 use regex::Regex;
 

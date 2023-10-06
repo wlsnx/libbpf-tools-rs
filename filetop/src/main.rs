@@ -1,8 +1,9 @@
-#![feature(cstr_from_bytes_until_nul)]
-
 use anyhow::{bail, Result};
 use clap::Parser;
-use libbpf_rs::{Map, MapFlags};
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    Map, MapFlags,
+};
 use plain::Plain;
 use std::ffi::CStr;
 use std::thread::sleep;
@@ -56,7 +57,7 @@ fn bump_memlock_rlimit() -> Result<()> {
     Ok(())
 }
 
-fn print_stat(map: &mut Map, rows: u32) -> Result<()> {
+fn print_stat(map: &Map, rows: u32) -> Result<()> {
     let mut rows = rows;
 
     println!(

@@ -1,9 +1,10 @@
-#![feature(cstr_from_bytes_until_nul)]
-
 use anyhow::{bail, Result};
 use clap::Parser;
 use hexyl::PrinterBuilder;
-use libbpf_rs::{RingBufferBuilder, UprobeOpts};
+use libbpf_rs::{
+    skel::{OpenSkel, SkelBuilder},
+    RingBufferBuilder, UprobeOpts,
+};
 use plain::Plain;
 use std::ffi::CStr;
 use std::io::{self, BufWriter};
@@ -128,7 +129,9 @@ fn main() -> Result<()> {
 
         let len = command.len.unwrap_or(DATA_MAX_LEN);
         let mut ringbuf_builder = RingBufferBuilder::new();
-        ringbuf_builder.add(skel.maps().events(), |data| handle_event(data, len))?;
+        let maps = skel.maps();
+        let events = maps.events();
+        ringbuf_builder.add(events, |data| handle_event(data, len))?;
         let ringbuf = ringbuf_builder.build()?;
 
         loop {
