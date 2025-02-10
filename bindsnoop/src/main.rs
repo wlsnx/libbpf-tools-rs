@@ -1,36 +1,22 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    MapFlags, PerfBufferBuilder,
+    MapCore, MapFlags, PerfBufferBuilder,
 };
-use plain::Plain;
 use std::{
+    mem::{size_of, MaybeUninit},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::AsRawFd,
     time::Duration,
 };
 
 mod bindsnoop {
-    include!(concat!(env!("OUT_DIR"), "/bindsnoop.skel.rs"));
+    include!("bpf/bindsnoop.skel.rs");
 }
 
+use crate::types::bind_event;
 use bindsnoop::*;
-
-unsafe impl Plain for bindsnoop_rodata_types::bind_event {}
-
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
 
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
@@ -59,8 +45,14 @@ struct Command {
 }
 
 fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool) {
-    let mut event = bindsnoop_rodata_types::bind_event::default();
-    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+    // 安全性检查
+    if data.len() < size_of::<bind_event>() {
+        eprintln!("Data buffer too short");
+        return;
+    }
+
+    // 使用类型转换读取事件数据
+    let event = unsafe { &*(data.as_ptr() as *const bind_event) };
 
     if emit_timestamp {
         let now = chrono::Local::now().format("%H:%M:%S");
@@ -110,32 +102,29 @@ fn main() -> Result<()> {
         skel_builder.obj_builder.debug(true);
     }
 
-    bump_memlock_rlimit()?;
-
-    let mut open_skel = skel_builder.open()?;
+    let mut open_skel = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut open_skel)?;
 
     if opts.cgroup.is_some() {
-        open_skel.rodata().filter_cg = true;
+        open_skel.maps.rodata_data.filter_cg = true;
     }
-    open_skel.rodata().target_pid = opts.pid.unwrap_or(0) as i32;
-    open_skel.rodata().ignore_errors = !opts.failed;
-    open_skel.rodata().filter_by_port = opts.ports.is_some();
+    open_skel.maps.rodata_data.target_pid = opts.pid.unwrap_or(0) as i32;
+    open_skel.maps.rodata_data.ignore_errors = !opts.failed;
+    open_skel.maps.rodata_data.filter_by_port = opts.ports.is_some();
 
     let mut skel = open_skel.load()?;
 
     if let Some(cgroupspath) = opts.cgroup {
         let cgfd = std::fs::File::open(cgroupspath)?;
-        skel.maps_mut().cgroup_map().update(
-            &[0; 4],
-            &cgfd.as_raw_fd().to_ne_bytes(),
-            MapFlags::ANY,
-        )?;
+        skel.maps
+            .cgroup_map
+            .update(&[0; 4], &cgfd.as_raw_fd().to_ne_bytes(), MapFlags::ANY)?;
     }
 
     if let Some(ports) = opts.ports {
         for port in ports.split(',') {
             let port_num: u16 = port.parse()?;
-            skel.maps_mut().ports().update(
+            skel.maps.ports.update(
                 &port_num.to_ne_bytes(),
                 &port_num.to_ne_bytes(),
                 MapFlags::ANY,
@@ -145,7 +134,7 @@ fn main() -> Result<()> {
 
     skel.attach()?;
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
+    let perf = PerfBufferBuilder::new(&skel.maps.events)
         .sample_cb(|cpu, data| handle_event(cpu, data, opts.timestamp))
         .lost_cb(handle_lost_events)
         .build()?;

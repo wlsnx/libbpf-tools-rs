@@ -1,55 +1,41 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use hexyl::PrinterBuilder;
 use libbpf_rs::{
     skel::{OpenSkel, SkelBuilder},
     RingBufferBuilder, UprobeOpts,
 };
-use plain::Plain;
-use std::ffi::CStr;
 use std::io::{self, BufWriter};
 use std::time::Duration;
+use std::{ffi::CStr, mem::MaybeUninit};
 
 mod sslsnoop {
-    include!(concat!(env!("OUT_DIR"), "/sslsnoop.skel.rs"));
+    include!("bpf/sslsnoop.skel.rs");
 }
 
 use sslsnoop::*;
 
-unsafe impl Plain for sslsnoop_rodata_types::event {}
-
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
 const DATA_MAX_LEN: usize = 4096;
 
 fn handle_event(data: &[u8], len: usize) -> i32 {
-    let mut data = data.to_vec();
-    data.extend_from_slice(&[0; DATA_MAX_LEN]);
-    let mut event = sslsnoop_rodata_types::event::default();
-    event.copy_from_bytes(&data).unwrap();
-    let data = &event.data[..(event.len as usize).min(DATA_MAX_LEN)];
+    // let mut data = data.to_vec();
+    // data.extend_from_slice(&[0; DATA_MAX_LEN]);
+    // let mut event = types::event::default();
+    // event.copy_from_bytes(&data).unwrap();
+    // let data = &event.data[..(event.len as usize).min(DATA_MAX_LEN)];
+    let event = unsafe { *(data.as_ptr().cast::<types::event>()) };
     let comm = CStr::from_bytes_until_nul(&event.comm)
         .unwrap()
         .to_str()
         .unwrap();
+    let is_read = unsafe { event.is_read.assume_init() };
     println!(
         "{} PID:{} TGID:{} COMMAND:{} {}:{}",
         chrono::Local::now().format("%H:%M:%S"),
         event.pid_tgid >> 32,
         event.pid_tgid & 0xffffffff,
         comm,
-        if event.is_read { "READ" } else { "WRITE" },
+        if is_read { "READ" } else { "WRITE" },
         event.len,
     );
     let stdout = io::stdout();
@@ -84,14 +70,13 @@ fn main() -> Result<()> {
     let command = Command::parse();
     let mut skel_builder = SslsnoopSkelBuilder::default();
     if command.verbose {
-        skel_builder.obj_builder.debug(true);
+        skel_builder.object_builder_mut().debug(true);
     }
 
-    bump_memlock_rlimit()?;
+    let mut obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut obj)?;
 
-    let open_skel = skel_builder.open()?;
-
-    let mut skel = open_skel.load()?;
+    let skel = open_skel.load()?;
 
     // skel.attach()?;
 
@@ -106,8 +91,8 @@ fn main() -> Result<()> {
                     ..Default::default()
                 };
                 links.push(
-                    skel.progs_mut()
-                        .probe_func()
+                    skel.progs
+                        .probe_func
                         .attach_uprobe_with_opts(-1, path, 0, opts)?,
                 );
                 let opts = UprobeOpts {
@@ -116,12 +101,12 @@ fn main() -> Result<()> {
                     ..Default::default()
                 };
                 links.push(if func_name.to_lowercase().contains("read") {
-                    skel.progs_mut()
-                        .retprobe_read()
+                    skel.progs
+                        .retprobe_read
                         .attach_uprobe_with_opts(-1, path, 0, opts)?
                 } else {
-                    skel.progs_mut()
-                        .retprobe_write()
+                    skel.progs
+                        .retprobe_write
                         .attach_uprobe_with_opts(-1, path, 0, opts)?
                 });
             }
@@ -129,9 +114,7 @@ fn main() -> Result<()> {
 
         let len = command.len.unwrap_or(DATA_MAX_LEN);
         let mut ringbuf_builder = RingBufferBuilder::new();
-        let maps = skel.maps();
-        let events = maps.events();
-        ringbuf_builder.add(events, |data| handle_event(data, len))?;
+        ringbuf_builder.add(&skel.maps.events, |data| handle_event(data, len))?;
         let ringbuf = ringbuf_builder.build()?;
 
         loop {

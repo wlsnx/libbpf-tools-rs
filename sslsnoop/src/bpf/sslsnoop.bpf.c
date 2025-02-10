@@ -22,13 +22,6 @@ struct event {
 const struct event _e = {0};
 
 struct {
-  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-  __type(key, u32);
-  __type(value, struct event);
-  __uint(max_entries, 1);
-} event_heap SEC(".maps");
-
-struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __type(key, u64);
   __type(value, const char **);
@@ -44,24 +37,22 @@ static __always_inline int update_buf(const char *buf) {
 static __always_inline int output(int len, bool is_read) {
   if (len <= 0)
     return 0;
-  int zero = 0;
-  struct event *event = bpf_map_lookup_elem(&event_heap, &zero);
-  if (event == NULL) {
-    return 0;
-  }
-  bpf_get_current_comm(event->comm, COMM_MAX_LEN);
   u64 pid_tgid = bpf_get_current_pid_tgid();
   const char **buf = bpf_map_lookup_elem(&ssl_buffers, &pid_tgid);
   if (buf == NULL) {
     return 0;
   }
+  struct event *event = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
+  if (event == NULL) {
+    return 0;
+  }
+  bpf_get_current_comm(event->comm, COMM_MAX_LEN);
   event->pid_tgid = pid_tgid;
   event->is_read = is_read;
   event->len = len;
   len = (len >= DATA_MAX_LEN ? DATA_MAX_LEN : len & (DATA_MAX_LEN - 1));
   bpf_probe_read_user(event->data, len, *buf);
-  bpf_ringbuf_output(&events, event, sizeof(struct event) - DATA_MAX_LEN + len,
-                     0);
+  bpf_ringbuf_submit(event, 0);
   bpf_map_delete_elem(&ssl_buffers, &pid_tgid);
   return 0;
 }

@@ -1,44 +1,28 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
-use libbpf_rs::PerfBufferBuilder;
-use plain::Plain;
-use std::{ffi::CStr, time::Duration};
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    RingBufferBuilder,
+};
+use std::{ffi::CStr, mem::MaybeUninit, time::Duration};
 
 mod filelife {
-    include!(concat!(env!("OUT_DIR"), "/filelife.skel.rs"));
+    include!("bpf/filelife.skel.rs");
 }
 
 use filelife::*;
 
-unsafe impl Plain for filelife_bss_types::event {}
-
 #[derive(Debug, Parser)]
 #[command(about = "Trace the lifespan of short-lived files.")]
 struct Command {
-    /// Verbose debug output
     #[arg(short)]
     verbose: bool,
-    /// Process PID to trace
     #[arg(short)]
     pid: Option<i32>,
 }
 
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
-fn handle_event(_cpu: i32, data: &[u8]) {
-    let mut event = filelife_bss_types::event::default();
-    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+fn handle_event(data: &[u8]) -> i32 {
+    let event = unsafe { &*(data.as_ptr() as *const types::event) };
 
     let now = chrono::Local::now().format("%H:%M:%S");
 
@@ -55,37 +39,31 @@ fn handle_event(_cpu: i32, data: &[u8]) {
             .unwrap()
             .to_str()
             .unwrap()
-    )
-}
-
-fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {count} events on CPU {cpu}");
+    );
+    0
 }
 
 fn main() -> Result<()> {
     let opts = Command::parse();
 
+    let mut open_object = MaybeUninit::uninit();
     let mut skel_builder = FilelifeSkelBuilder::default();
     if opts.verbose {
-        skel_builder.obj_builder.debug(true);
+        skel_builder.object_builder_mut().debug(true);
     }
 
-    bump_memlock_rlimit()?;
-
-    let mut open_skel = skel_builder.open()?;
+    let open_skel = skel_builder.open(&mut open_object)?;
 
     if let Some(pid) = opts.pid {
-        open_skel.rodata().targ_tgid = pid;
+        open_skel.maps.rodata_data.targ_tgid = pid;
     }
 
     let mut skel = open_skel.load()?;
-
     skel.attach()?;
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
-        .sample_cb(handle_event)
-        .lost_cb(handle_lost_events)
-        .build()?;
+    let mut ringbuf_builder = RingBufferBuilder::new();
+    ringbuf_builder.add(&skel.maps.events, handle_event)?;
+    let ringbuf = ringbuf_builder.build()?;
 
     println!(
         "{:<8} {:<6} {:<16} {:<7} FILE",
@@ -93,6 +71,6 @@ fn main() -> Result<()> {
     );
 
     loop {
-        perf.poll(Duration::from_millis(100))?;
+        ringbuf.poll(Duration::MAX)?;
     }
 }

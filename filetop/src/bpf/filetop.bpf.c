@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause) */
 /* Copyright (c) 2021 Hengqi Chen */
 #include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_core_read.h>
-#include <bpf/bpf_tracing.h>
+
 #include "filetop.h"
 #include "stat.h"
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
 
 #define MAX_ENTRIES 10240
 
@@ -21,10 +22,25 @@ struct {
 } entries SEC(".maps");
 
 static void get_file_path(struct file *file, char *buf, size_t size) {
+  size_t DPATH_LEN = 128;
   struct qstr dname;
+  u32 pos = 0;
+  struct dentry *d = BPF_CORE_READ(file, f_path.dentry);
 
-  dname = BPF_CORE_READ(file, f_path.dentry, d_name);
-  bpf_probe_read_kernel(buf, size, dname.name);
+  for (int i = 0; i < 64; i++) {
+    if (!d)
+      return;
+    dname = BPF_CORE_READ(d, d_name);
+    if (pos + DPATH_LEN > size)
+      return;
+    long len = bpf_probe_read_kernel_str(buf + pos, DPATH_LEN, dname.name);
+    if (len <= 2)
+      return;
+    pos += len;
+    bpf_printk("len: %d pos: %d", len, pos);
+    buf[(pos - 1) & (size - 1)] = '/';
+    d = BPF_CORE_READ(d, d_parent);
+  }
 }
 
 static int probe_entry(struct pt_regs *ctx, struct file *file, size_t count,
@@ -76,15 +92,15 @@ static int probe_entry(struct pt_regs *ctx, struct file *file, size_t count,
   return 0;
 };
 
-SEC("kprobe/vfs_read")
-int BPF_KPROBE(vfs_read_entry, struct file *file, char *buf, size_t count,
-               loff_t *pos) {
+SEC("fentry/vfs_read")
+int BPF_PROG(vfs_read_entry, struct file *file, char *buf, size_t count,
+             loff_t *pos) {
   return probe_entry(ctx, file, count, READ);
 }
 
-SEC("kprobe/vfs_write")
-int BPF_KPROBE(vfs_write_entry, struct file *file, const char *buf,
-               size_t count, loff_t *pos) {
+SEC("fentry/vfs_write")
+int BPF_PROG(vfs_write_entry, struct file *file, const char *buf, size_t count,
+             loff_t *pos) {
   return probe_entry(ctx, file, count, WRITE);
 }
 

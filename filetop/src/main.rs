@@ -1,21 +1,21 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    Map, MapFlags,
+    Map,
+    MapCore, // Added MapCore trait
+    MapFlags,
 };
-use plain::Plain;
 use std::ffi::CStr;
+use std::mem::MaybeUninit;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::Duration; // Added for open() method
 
 mod filetop {
-    include!(concat!(env!("OUT_DIR"), "/filetop.skel.rs"));
+    include!("bpf/filetop.skel.rs");
 }
 
-use filetop::*;
-
-unsafe impl Plain for filetop_bss_types::file_stat {}
+use filetop::*; // Add this to access bss types
 
 #[derive(Parser, Debug)]
 #[command(about = "Trace file reads/writes by process.")]
@@ -38,24 +38,13 @@ struct Command {
     /// Verbose debug output
     #[arg(short)]
     verbose: bool,
-    #[arg(default_value = "1")]
+    #[arg(default_value = "3")]
     interval: u64,
     #[arg(default_value = "99999999")]
     count: u64,
 }
 
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
+// bump_memlock_rlimit function removed
 
 fn print_stat(map: &Map, rows: u32) -> Result<()> {
     let mut rows = rows;
@@ -71,10 +60,13 @@ fn print_stat(map: &Map, rows: u32) -> Result<()> {
         map.delete(&key)?;
 
         if rows > 0 {
-            let mut file_stat = filetop_bss_types::file_stat::default();
-            file_stat
-                .copy_from_bytes(&value)
-                .expect("Data buffer was too short");
+            // 使用强制类型转换替代 Plain trait
+            let file_stat = unsafe { *(value.as_ptr() as *const types::file_stat) };
+
+            let filename = CStr::from_bytes_until_nul(&file_stat.filename)?.to_str()?;
+            let mut components: Vec<_> = filename.split("/").collect();
+            components.reverse();
+            let rev_filename = components.join("/");
 
             println!(
                 "{:<7} {:<16} {:<6} {:<6} {:<7} {:<7} {:<1} {}",
@@ -85,7 +77,7 @@ fn print_stat(map: &Map, rows: u32) -> Result<()> {
                 file_stat.read_bytes / 1024,
                 file_stat.write_bytes / 1024,
                 char::from_u32(file_stat._type as u32).unwrap(),
-                CStr::from_bytes_until_nul(&file_stat.filename)?.to_str()?,
+                &rev_filename[1..],
             );
 
             rows -= 1;
@@ -102,17 +94,17 @@ fn main() -> Result<()> {
         skel_builder.obj_builder.debug(true);
     }
 
-    bump_memlock_rlimit()?;
+    // bump_memlock_rlimit call removed
 
-    let mut open_skel = skel_builder.open()?;
+    let mut open_obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut open_obj)?;
 
     if let Some(pid) = opts.pid {
-        open_skel.rodata().target_pid = pid;
+        open_skel.maps.rodata_data.target_pid = pid; // Changed bss() to maps.rodata_data()
     }
-    open_skel.rodata().regular_file_only = !opts.all;
+    open_skel.maps.rodata_data.regular_file_only = !opts.all; // Changed bss() to maps.rodata_data()
 
     let mut skel = open_skel.load()?;
-
     skel.attach()?;
 
     let mut count = opts.count;
@@ -121,7 +113,7 @@ fn main() -> Result<()> {
         if !opts.noclear {
             print!("\x1B[2J\x1B[1;1H");
         }
-        print_stat(skel.maps_mut().entries(), opts.rows)?;
+        print_stat(&skel.maps.entries, opts.rows)?; // Changed maps_mut() to maps()
         count -= 1;
     }
     Ok(())

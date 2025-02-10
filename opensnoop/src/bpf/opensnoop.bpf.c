@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2019 Facebook
 // Copyright (c) 2020 Netflix
+#include "opensnoop.h"
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
-#include "opensnoop.h"
 
 const volatile pid_t targ_pid = 0;
 const volatile pid_t targ_tgid = 0;
@@ -19,9 +19,8 @@ struct {
 } start SEC(".maps");
 
 struct {
-  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-  __uint(key_size, sizeof(u32));
-  __uint(value_size, sizeof(u32));
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 10000);
 } events SEC(".maps");
 
 static __always_inline bool valid_uid(uid_t uid) { return uid != INVALID_UID; }
@@ -80,7 +79,6 @@ int tracepoint__syscalls__sys_enter_openat(
 }
 
 static __always_inline int trace_exit(struct trace_event_raw_sys_exit *ctx) {
-  struct event event = {};
   struct args_t *ap;
   uintptr_t stack[3];
   int ret;
@@ -94,20 +92,23 @@ static __always_inline int trace_exit(struct trace_event_raw_sys_exit *ctx) {
     goto cleanup; /* want failed only */
 
   /* event data */
-  event.pid = bpf_get_current_pid_tgid() >> 32;
-  event.uid = bpf_get_current_uid_gid();
-  bpf_get_current_comm(&event.comm, sizeof(event.comm));
-  bpf_probe_read_user_str(&event.fname, sizeof(event.fname), ap->fname);
-  event.flags = ap->flags;
-  event.ret = ret;
+  struct event *event = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
+  if (!event)
+    return 0;
+  event->pid = bpf_get_current_pid_tgid() >> 32;
+  event->uid = bpf_get_current_uid_gid();
+  bpf_get_current_comm(&event->comm, sizeof(event->comm));
+  bpf_probe_read_user_str(&event->fname, sizeof(event->fname), ap->fname);
+  event->flags = ap->flags;
+  event->ret = ret;
 
   bpf_get_stack(ctx, &stack, sizeof(stack), BPF_F_USER_STACK);
   /* Skip the first address that is usually the syscall it-self */
-  event.callers[0] = stack[1];
-  event.callers[1] = stack[2];
+  event->callers[0] = stack[1];
+  event->callers[1] = stack[2];
 
   /* emit event */
-  bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+  bpf_ringbuf_submit(event, 0);
 
 cleanup:
   bpf_map_delete_elem(&start, &pid);

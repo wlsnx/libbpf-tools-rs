@@ -4,12 +4,12 @@ use libbpf_rs::{
     skel::{OpenSkel, SkelBuilder},
     PerfBufferBuilder, UprobeOpts,
 };
-use plain::Plain;
 use regex::Regex;
+use std::mem::MaybeUninit;
 use std::time::Duration;
 
 mod bashreadline {
-    include!(concat!(env!("OUT_DIR"), "/bashreadline.skel.rs"));
+    include!("bpf/bashreadline.skel.rs");
 }
 
 use bashreadline::*;
@@ -25,8 +25,6 @@ struct Command {
     verbose: bool,
 }
 
-unsafe impl Plain for bashreadline_bss_types::str_t {}
-
 fn bump_memlock_rlimit() -> Result<()> {
     let rlimit = libc::rlimit {
         rlim_cur: 128 << 20,
@@ -41,8 +39,7 @@ fn bump_memlock_rlimit() -> Result<()> {
 }
 
 fn handle_event(_cpu: i32, data: &[u8]) {
-    let mut event = bashreadline_bss_types::str_t::default();
-    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+    let event: types::str_t = unsafe { *(data.as_ptr().cast()) };
 
     let now = chrono::Local::now().format("%H:%M:%S");
 
@@ -56,6 +53,20 @@ fn handle_lost_events(cpu: i32, count: u64) {
     eprintln!("Lost {count} events on CPU {cpu}");
 }
 
+fn find_readline_path() -> Result<String> {
+    // 使用std::process::Command来查找readline路径
+    let ldd = std::process::Command::new("ldd")
+        .arg("/bin/bash")
+        .output()?;
+    let output = std::str::from_utf8(&ldd.stdout)?;
+    let pattern = Regex::new(r"readline\.so[^ ]* => ([^ ]+)")?;
+    if let Some(capture) = pattern.captures(output) {
+        Ok(capture.get(1).unwrap().as_str().to_string())
+    } else {
+        bail!("Failed to find readline.so")
+    }
+}
+
 fn main() -> Result<()> {
     let opts = Command::parse();
 
@@ -66,32 +77,23 @@ fn main() -> Result<()> {
 
     bump_memlock_rlimit()?;
 
-    let open_skel = skel_builder.open()?;
+    let mut open_skel = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut open_skel)?;
 
-    let mut skel = open_skel.load()?;
+    let skel = open_skel.load()?;
 
     let opts = UprobeOpts {
         retprobe: true,
         func_name: "readline".into(),
         ..Default::default()
     };
-    let ldd = std::process::Command::new("ldd")
-        .arg("/bin/bash")
-        .output()?;
-    let output = std::str::from_utf8(&ldd.stdout)?;
-    let pattern = Regex::new(r"readline\.so[^ ]* => ([^ ]+)")?;
-    let _link = if let Some(capture) = pattern.captures(output) {
-        let readline_path = capture.get(1).unwrap().as_str();
-        skel.progs_mut()
-            .printret()
-            .attach_uprobe_with_opts(-1, readline_path, 0, opts)?
-    } else {
-        skel.progs_mut()
-            .printret()
-            .attach_uprobe_with_opts(-1, "/bin/bash", 0, opts)?
-    };
+    let readline_path = find_readline_path()?;
+    let _link = skel
+        .progs
+        .printret
+        .attach_uprobe_with_opts(-1, &readline_path, 0, opts)?;
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
+    let perf = PerfBufferBuilder::new(&skel.maps.events)
         .sample_cb(handle_event)
         .lost_cb(handle_lost_events)
         .build()?;

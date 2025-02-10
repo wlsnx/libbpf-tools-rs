@@ -1,21 +1,18 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    PerfBufferBuilder,
+    RingBufferBuilder,
 };
-use plain::Plain;
 
-use std::ffi::CStr;
 use std::time::Duration;
+use std::{ffi::CStr, mem::MaybeUninit};
 
 mod opensnoop {
-    include!(concat!(env!("OUT_DIR"), "/opensnoop.skel.rs"));
+    include!("bpf/opensnoop.skel.rs");
 }
 
 use opensnoop::*;
-
-unsafe impl Plain for opensnoop_rodata_types::event {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Trace open family syscalls")]
@@ -52,24 +49,8 @@ struct Command {
     failed: bool,
 }
 
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
-fn handle_event(_cpu: i32, data: &[u8], opts: &Command) {
-    let mut event = opensnoop_rodata_types::event::default();
-    let mut data = data.to_vec();
-    data.extend(vec![0; 7680]);
-    plain::copy_from_bytes(&mut event, &data).expect("Data buffer was too short");
+fn handle_event(data: &[u8], opts: &Command) -> i32 {
+    let event: types::event = unsafe { *(data.as_ptr().cast()) };
 
     if opts.timestamp {
         let now = chrono::Local::now();
@@ -102,10 +83,7 @@ fn handle_event(_cpu: i32, data: &[u8], opts: &Command) {
         print!("{:08o} ", event.flags);
     }
     println!("{}", fname);
-}
-
-fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {count} events on CPU {cpu}");
+    0
 }
 
 fn main() -> Result<()> {
@@ -113,34 +91,32 @@ fn main() -> Result<()> {
 
     let mut skel_builder = OpensnoopSkelBuilder::default();
     if opts.verbose {
-        skel_builder.obj_builder.debug(true);
+        skel_builder.object_builder_mut().debug(true);
     }
 
-    bump_memlock_rlimit()?;
-
-    let mut open_skel = skel_builder.open()?;
+    let mut obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut obj)?;
 
     if let Some(pid) = opts.pid {
-        open_skel.rodata().targ_tgid = pid;
+        open_skel.maps.rodata_data.targ_tgid = pid;
     }
     if let Some(tid) = opts.tid {
-        open_skel.rodata().targ_pid = tid;
+        open_skel.maps.rodata_data.targ_pid = tid;
     }
     if let Some(uid) = opts.uid {
-        open_skel.rodata().targ_uid = uid;
+        open_skel.maps.rodata_data.targ_uid = uid;
     }
     if opts.failed {
-        open_skel.rodata().targ_failed = opts.failed;
+        open_skel.maps.rodata_data.targ_failed = opts.failed;
     }
 
     let mut skel = open_skel.load()?;
 
     skel.attach()?;
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
-        .sample_cb(|cpu, data| handle_event(cpu, data, &opts))
-        .lost_cb(handle_lost_events)
-        .build()?;
+    let mut ringbuf_builder = RingBufferBuilder::new();
+    ringbuf_builder.add(&skel.maps.events, |data| handle_event(data, &opts))?;
+    let ringbuf = ringbuf_builder.build()?;
 
     if opts.timestamp {
         print!("{:<8} ", "TIME");
@@ -153,6 +129,6 @@ fn main() -> Result<()> {
     }
 
     loop {
-        perf.poll(Duration::from_millis(100))?;
+        ringbuf.poll(Duration::MAX)?;
     }
 }

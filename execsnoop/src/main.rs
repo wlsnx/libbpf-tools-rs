@@ -1,24 +1,21 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    MapFlags, PerfBufferBuilder,
+    MapCore, MapFlags, RingBufferBuilder,
 };
-use plain::Plain;
 use regex::Regex;
 
-use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::time::Duration;
 use std::{ffi::CStr, time::SystemTime};
+use std::{fs::File, mem::MaybeUninit};
 
 mod execsnoop {
-    include!(concat!(env!("OUT_DIR"), "/execsnoop.skel.rs"));
+    include!("bpf/execsnoop.skel.rs");
 }
 
 use execsnoop::*;
-
-unsafe impl Plain for execsnoop_rodata_types::event {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Trace exec syscalls")]
@@ -58,31 +55,14 @@ struct Command {
     cgroup: Option<String>,
 }
 
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
 fn handle_event(
-    _cpu: i32,
     data: &[u8],
     opts: &Command,
     start_time: &SystemTime,
     name_regex: &Option<Regex>,
     line_regex: &Option<Regex>,
 ) {
-    let mut event = execsnoop_rodata_types::event::default();
-    let mut data = data.to_vec();
-    data.extend(vec![0; 7680]);
-    plain::copy_from_bytes(&mut event, &data).expect("Data buffer was too short");
+    let event: types::event = unsafe { *data.as_ptr().cast() };
 
     let comm = CStr::from_bytes_until_nul(&event.comm)
         .unwrap()
@@ -118,13 +98,10 @@ fn handle_event(
         print!("{:<6} ", event.uid);
     }
 
-    println!(
-        "{:<16} {:<6} {:<6} {:3} {}",
-        comm, event.pid, event.ppid, event.retval, args,
-    );
+    println!("{:<16} {:<6} {:<6} {}", comm, event.pid, event.ppid, args,);
 }
 
-fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
+fn join_args(event: types::event, opts: &Command) -> String {
     let args: Vec<_> = event
         .args
         .split(|&c| c == 0)
@@ -148,42 +125,35 @@ fn join_args(event: execsnoop_rodata_types::event, opts: &Command) -> String {
     args_str
 }
 
-fn handle_lost_events(cpu: i32, count: u64) {
-    eprintln!("Lost {count} events on CPU {cpu}");
-}
-
 fn main() -> Result<()> {
     let start_time = SystemTime::now();
     let opts = Command::parse();
 
     let mut skel_builder = ExecsnoopSkelBuilder::default();
     if opts.verbose {
-        skel_builder.obj_builder.debug(true);
+        skel_builder.object_builder_mut().debug(true);
     }
 
-    bump_memlock_rlimit()?;
+    let mut obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut obj)?;
 
-    let mut open_skel = skel_builder.open()?;
-
-    open_skel.rodata().ignore_failed = !opts.fails;
+    open_skel.maps.rodata_data.ignore_failed = !opts.fails;
     if let Some(uid) = opts.uid {
-        open_skel.rodata().targ_uid = uid;
+        open_skel.maps.rodata_data.targ_uid = uid;
     }
-    open_skel.rodata().max_args = opts.max_args;
+    open_skel.maps.rodata_data.max_args = opts.max_args;
 
     if opts.cgroup.is_some() {
-        open_skel.rodata().filter_cg = true;
+        open_skel.maps.rodata_data.filter_cg = true;
     }
 
     let mut skel = open_skel.load()?;
 
     if let Some(ref cgroupspath) = opts.cgroup {
         let cgfd = File::open(cgroupspath)?;
-        skel.maps_mut().cgroup_map().update(
-            &[0; 4],
-            &cgfd.as_raw_fd().to_ne_bytes(),
-            MapFlags::ANY,
-        )?;
+        skel.maps
+            .cgroup_map
+            .update(&[0; 4], &cgfd.as_raw_fd().to_ne_bytes(), MapFlags::ANY)?;
     }
 
     skel.attach()?;
@@ -191,12 +161,12 @@ fn main() -> Result<()> {
     let name_regex = opts.name.as_ref().map(|name| Regex::new(name).unwrap());
     let line_regex = opts.line.as_ref().map(|line| Regex::new(line).unwrap());
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
-        .sample_cb(|cpu, data| {
-            handle_event(cpu, data, &opts, &start_time, &name_regex, &line_regex)
-        })
-        .lost_cb(handle_lost_events)
-        .build()?;
+    let mut builder = RingBufferBuilder::new();
+    builder.add(&skel.maps.events, |data| {
+        handle_event(data, &opts, &start_time, &name_regex, &line_regex);
+        0
+    })?;
+    let ringbuf = builder.build()?;
 
     if opts.time {
         print!("{:<8} ", "TIME");
@@ -213,6 +183,6 @@ fn main() -> Result<()> {
         "PCOMM", "PID", "PPID", "RET"
     );
     loop {
-        perf.poll(Duration::from_millis(100))?;
+        ringbuf.poll(Duration::MAX)?;
     }
 }

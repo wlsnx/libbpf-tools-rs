@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 #include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_core_read.h>
+
 #include "execsnoop.h"
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_helpers.h>
 
 const volatile bool filter_cg = false;
 const volatile bool ignore_failed = true;
@@ -18,17 +19,16 @@ struct {
   __uint(max_entries, 1);
 } cgroup_map SEC(".maps");
 
-struct {
-  __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, 10240);
-  __type(key, pid_t);
-  __type(value, struct event);
-} execs SEC(".maps");
+/* struct { */
+/*   __uint(type, BPF_MAP_TYPE_HASH); */
+/*   __uint(max_entries, 10240); */
+/*   __type(key, pid_t); */
+/*   __type(value, struct event); */
+/* } execs SEC(".maps"); */
 
 struct {
-  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-  __uint(key_size, sizeof(u32));
-  __uint(value_size, sizeof(u32));
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 1 << 20);
 } events SEC(".maps");
 
 static __always_inline bool valid_uid(uid_t uid) { return uid != INVALID_UID; }
@@ -56,13 +56,10 @@ int tracepoint__syscalls__sys_enter_execve(
   id = bpf_get_current_pid_tgid();
   pid = (pid_t)id;
   tgid = id >> 32;
-  if (bpf_map_update_elem(&execs, &pid, &empty_event, BPF_NOEXIST))
-    return 0;
 
-  event = bpf_map_lookup_elem(&execs, &pid);
+  event = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
   if (!event)
     return 0;
-
   event->pid = tgid;
   event->uid = uid;
   task = (struct task_struct *)bpf_get_current_task();
@@ -82,19 +79,19 @@ int tracepoint__syscalls__sys_enter_execve(
   }
 
   event->args_count++;
-#pragma unroll
+
   for (i = 1; i < TOTAL_MAX_ARGS && i < max_args; i++) {
     bpf_probe_read_user(&argp, sizeof(argp), &args[i]);
     if (!argp)
-      return 0;
+      goto submit;
 
     if (event->args_size > LAST_ARG)
-      return 0;
+      goto submit;
 
     ret =
         bpf_probe_read_user_str(&event->args[event->args_size], ARGSIZE, argp);
     if (ret > ARGSIZE)
-      return 0;
+      goto submit;
 
     event->args_count++;
     event->args_size += ret;
@@ -102,45 +99,47 @@ int tracepoint__syscalls__sys_enter_execve(
   /* try to read one more argument to check if there is one */
   bpf_probe_read_user(&argp, sizeof(argp), &args[max_args]);
   if (!argp)
-    return 0;
+    goto submit;
 
   /* pointer to max_args+1 isn't null, asume we have more arguments */
   event->args_count++;
+submit:
+  bpf_ringbuf_submit(event, 0);
   return 0;
 }
 
-SEC("tracepoint/syscalls/sys_exit_execve")
-int tracepoint__syscalls__sys_exit_execve(
-    struct trace_event_raw_sys_exit *ctx) {
-  u64 id;
-  pid_t pid;
-  int ret;
-  struct event *event;
+/* SEC("tracepoint/syscalls/sys_exit_execve") */
+/* int tracepoint__syscalls__sys_exit_execve( */
+/*     struct trace_event_raw_sys_exit *ctx) { */
+/*   u64 id; */
+/*   pid_t pid; */
+/*   int ret; */
+/*   struct event *event; */
 
-  if (filter_cg && !bpf_current_task_under_cgroup(&cgroup_map, 0))
-    return 0;
+/*   if (filter_cg && !bpf_current_task_under_cgroup(&cgroup_map, 0)) */
+/*     return 0; */
 
-  u32 uid = (u32)bpf_get_current_uid_gid();
+/*   u32 uid = (u32)bpf_get_current_uid_gid(); */
 
-  if (valid_uid(targ_uid) && targ_uid != uid)
-    return 0;
-  id = bpf_get_current_pid_tgid();
-  pid = (pid_t)id;
-  event = bpf_map_lookup_elem(&execs, &pid);
-  if (!event)
-    return 0;
-  ret = ctx->ret;
-  if (ignore_failed && ret < 0)
-    goto cleanup;
+/*   if (valid_uid(targ_uid) && targ_uid != uid) */
+/*     return 0; */
+/*   id = bpf_get_current_pid_tgid(); */
+/*   pid = (pid_t)id; */
+/*   event = bpf_map_lookup_elem(&execs, &pid); */
+/*   if (!event) */
+/*     return 0; */
+/*   ret = ctx->ret; */
+/*   if (ignore_failed && ret < 0) */
+/*     goto cleanup; */
 
-  event->retval = ret;
-  /* bpf_get_current_comm(&event->comm, sizeof(event->comm)); */
-  size_t len = EVENT_SIZE(event);
-  if (len <= sizeof(*event))
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, event, len);
-cleanup:
-  bpf_map_delete_elem(&execs, &pid);
-  return 0;
-}
+/*   event->retval = ret; */
+/*   /\* bpf_get_current_comm(&event->comm, sizeof(event->comm)); *\/ */
+/*   size_t len = EVENT_SIZE(event); */
+/*   if (len <= sizeof(*event)) */
+/*     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, event, len); */
+/* cleanup: */
+/*   bpf_map_delete_elem(&execs, &pid); */
+/*   return 0; */
+/* } */
 
 char LICENSE[] SEC("license") = "GPL";

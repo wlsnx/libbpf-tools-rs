@@ -1,20 +1,20 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    MapFlags, PerfBufferBuilder,
+    MapCore, MapFlags, PerfBufferBuilder,
 };
 use libc::{AF_INET, AF_INET6};
 use phf::{phf_map, Map};
-use plain::Plain;
 use std::{
     ffi::CStr,
+    mem::MaybeUninit,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     time::Duration,
 };
 
 mod tcpstates {
-    include!(concat!(env!("OUT_DIR"), "/tcpstates.skel.rs"));
+    include!("bpf/tcpstates.skel.rs");
 }
 
 use tcpstates::*;
@@ -61,28 +61,19 @@ struct Command {
     dport: Option<String>,
 }
 
-unsafe impl Plain for tcpstates_bss_types::event {}
-
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
 fn to_str(data: &[u8]) -> &str {
     CStr::from_bytes_until_nul(data).unwrap().to_str().unwrap()
 }
 
 fn handle_event(_cpu: i32, data: &[u8], emit_timestamp: bool, ip_len: usize) {
-    let mut event = tcpstates_bss_types::event::default();
-    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+    use types::event;
+    // 检查数据长度是否足够
+    assert!(
+        data.len() >= std::mem::size_of::<event>(),
+        "Data buffer too short"
+    );
+    // 强制类型转换
+    let event = unsafe { &*(data.as_ptr() as *const event) };
 
     if emit_timestamp {
         let now = chrono::Local::now().format("%H:%M:%S");
@@ -125,23 +116,22 @@ fn main() -> Result<()> {
         skel_builder.obj_builder.debug(true);
     }
 
-    bump_memlock_rlimit()?;
-
-    let mut open_skel = skel_builder.open()?;
+    let mut obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut obj)?;
 
     if opts.sport.is_some() {
-        open_skel.rodata().filter_by_sport = true;
+        open_skel.maps.rodata_data.filter_by_sport = true;
     }
 
     if opts.dport.is_some() {
-        open_skel.rodata().filter_by_dport = true;
+        open_skel.maps.rodata_data.filter_by_dport = true;
     }
 
     if opts.ipv4 || opts.ipv6 {
         if !opts.ipv4 {
-            open_skel.rodata().target_family = AF_INET6 as _;
+            open_skel.maps.rodata_data.target_family = AF_INET6 as _;
         } else {
-            open_skel.rodata().target_family = AF_INET as _;
+            open_skel.maps.rodata_data.target_family = AF_INET as _;
         }
     }
 
@@ -150,7 +140,7 @@ fn main() -> Result<()> {
     if let Some(sport) = opts.sport {
         for port in sport.split(',') {
             let port_num = port.parse::<u16>()?;
-            skel.maps_mut().sports().update(
+            skel.maps.sports.update(
                 &port_num.to_ne_bytes(),
                 &port_num.to_ne_bytes(),
                 MapFlags::ANY,
@@ -161,7 +151,7 @@ fn main() -> Result<()> {
     if let Some(dport) = opts.dport {
         for port in dport.split(',') {
             let port_num = port.parse::<u16>()?;
-            skel.maps_mut().dports().update(
+            skel.maps.dports.update(
                 &port_num.to_ne_bytes(),
                 &port_num.to_ne_bytes(),
                 MapFlags::ANY,
@@ -172,7 +162,7 @@ fn main() -> Result<()> {
     skel.attach()?;
 
     let ip_len = if opts.wide || opts.ipv6 { 39 } else { 15 };
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
+    let perf = PerfBufferBuilder::new(&skel.maps.events)
         .sample_cb(|cpu, data| handle_event(cpu, data, opts.timestamp, ip_len))
         .lost_cb(handle_lost_events)
         .build()?;
@@ -187,6 +177,6 @@ fn main() -> Result<()> {
     );
 
     loop {
-        perf.poll(Duration::from_millis(100))?;
+        perf.poll(Duration::MAX)?;
     }
 }

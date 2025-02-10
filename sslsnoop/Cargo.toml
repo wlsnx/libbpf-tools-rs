@@ -6,15 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.66"
-chrono = "0.4.23"
-clap = { version = "4.0.26", features = ["derive"] }
-hexyl = "0.12.0"
-libbpf-rs = "0.21.2"
-libbpf-sys = "1.0.4"
-libc = "0.2.137"
-plain = "0.2.3"
-regex = "1.7.0"
+anyhow = "1.0.95"
+chrono = "0.4.39"
+clap = { version = "4.5.23", features = ["derive"] }
+hexyl = "0.16.0"
+libbpf-rs = "0.24.8"
+libbpf-sys = "1.5.0"
+libc = "0.2.169"
+regex = "1.11.1"
 
 [build-dependencies]
-libbpf-cargo = "0.21.2"
+libbpf-cargo = "0.24.8"

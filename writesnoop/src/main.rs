@@ -1,22 +1,20 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
     RingBufferBuilder,
 };
-use plain::Plain;
-use std::collections::HashMap;
 use std::fs::{read_dir, read_link};
 use std::ptr;
 use std::time::Duration;
+use std::{collections::HashMap, mem::MaybeUninit};
+use types::event;
 
 mod writesnoop {
-    include!(concat!(env!("OUT_DIR"), "/writesnoop.skel.rs"));
+    include!("bpf/writesnoop.skel.rs");
 }
 
 use writesnoop::*;
-
-unsafe impl Plain for writesnoop_bss_types::event {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Trace write syscalls")]
@@ -34,22 +32,8 @@ struct Command {
     verbose: bool,
 }
 
-fn bump_memlock_rlimit() -> Result<()> {
-    let rlimit = libc::rlimit {
-        rlim_cur: 128 << 20,
-        rlim_max: 128 << 20,
-    };
-
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        bail!("Failed to increase rlimit");
-    }
-
-    Ok(())
-}
-
 fn handle_event(data: &[u8], path: bool, fds: &mut HashMap<(i32, i32), String>) -> i32 {
-    let mut event = writesnoop_bss_types::event::default();
-    event.copy_from_bytes(data).unwrap();
+    let event = unsafe { *(data.as_ptr().cast::<event>()) };
     if path {
         if !fds.contains_key(&(event.pid, event.fd)) {
             for entry in read_dir(format!("/proc/{}/fd", event.pid)).unwrap() {
@@ -87,22 +71,21 @@ fn main() -> Result<()> {
 
     let mut skel_builder = WritesnoopSkelBuilder::default();
     if opts.verbose {
-        skel_builder.obj_builder.debug(true);
+        skel_builder.object_builder_mut().debug(true);
     }
 
-    bump_memlock_rlimit()?;
-
-    let mut open_skel = skel_builder.open()?;
+    let mut obj = MaybeUninit::uninit();
+    let open_skel = skel_builder.open(&mut obj)?;
 
     if let Some(pid) = opts.pid {
-        open_skel.rodata().target_pid = pid;
+        open_skel.maps.rodata_data.target_pid = pid;
     }
 
     if let Some(name) = opts.name {
         unsafe {
             ptr::copy(
                 name.as_ptr(),
-                open_skel.rodata().target_comm.as_mut_ptr(),
+                open_skel.maps.rodata_data.target_comm.as_mut_ptr(),
                 name.len().min(255),
             );
         }
@@ -113,8 +96,7 @@ fn main() -> Result<()> {
 
     let mut fds = HashMap::new();
     let mut ringbuf_builder = RingBufferBuilder::new();
-    let mut maps = skel.maps_mut();
-    ringbuf_builder.add(maps.events(), |data| {
+    ringbuf_builder.add(&skel.maps.events, |data| {
         handle_event(data, opts.path, &mut fds)
     })?;
     let ringbuf = ringbuf_builder.build()?;
