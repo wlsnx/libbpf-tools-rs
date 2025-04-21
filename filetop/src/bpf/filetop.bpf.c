@@ -21,25 +21,33 @@ struct {
   __type(value, struct file_stat);
 } entries SEC(".maps");
 
+// 获取完整路径
+// 文件名的获取顺序为：当前文件名 -> 父目录文件名 -> ... -> 根目录
+// 一个合理的处理方式是将当前文件名写入`buffer`的尾部，
+// 然后在此文件名前面写入父目录的文件名，直到遇到根目录
+// 但是`bpf`校验器过于严格，无法从后往前拼接字符串
+// 所以改为从前往后拼接字符串，然后在用户空间将路径反转
 static void get_file_path(struct file *file, char *buf, size_t size) {
-  size_t DPATH_LEN = 128;
+
+  size_t DPATH_LEN = 256;
   struct qstr dname;
   u32 pos = 0;
   struct dentry *d = BPF_CORE_READ(file, f_path.dentry);
+  struct dentry *parent;
 
   for (int i = 0; i < 64; i++) {
-    if (!d)
+    parent = BPF_CORE_READ(d, d_parent);
+    if (d == parent)
       return;
     dname = BPF_CORE_READ(d, d_name);
     if (pos + DPATH_LEN > size)
       return;
     long len = bpf_probe_read_kernel_str(buf + pos, DPATH_LEN, dname.name);
-    if (len <= 2)
-      return;
+
     pos += len;
     bpf_printk("len: %d pos: %d", len, pos);
     buf[(pos - 1) & (size - 1)] = '/';
-    d = BPF_CORE_READ(d, d_parent);
+    d = parent;
   }
 }
 
