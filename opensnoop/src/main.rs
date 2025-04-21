@@ -6,6 +6,7 @@ use libbpf_rs::{
 };
 use mio::{event::Source, unix::SourceFd};
 use tokio::io::unix::AsyncFd;
+use tokio_bpfmap::AsyncBuffer;
 
 use std::time::Duration;
 use std::{ffi::CStr, mem::MaybeUninit};
@@ -135,14 +136,11 @@ async fn main() -> Result<()> {
         print!("{:<8} PATH ", "FLAGS");
     }
 
-    let fd = ringbuf.epoll_fd();
-    let async_fd = AsyncFd::new(fd)?;
+    let asyncbuf = AsyncBuffer::new(ringbuf)?;
+    // let fd = ringbuf.epoll_fd();
+    // let async_fd = AsyncFd::new(fd)?;
     loop {
-        let ready_guard = async_fd.readable().await?;
-        let ready = ready_guard.ready();
-        if ready.is_readable() {
-            println!("new event");
-            ringbuf.poll(Duration::MAX)?;
-        }
+        asyncbuf.readable().await?;
+        asyncbuf.poll(Duration::MAX)?;
     }
 }
