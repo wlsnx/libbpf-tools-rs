@@ -3,6 +3,7 @@
 
 // 包含所需的内核头文件和 BPF 辅助函数
 #include "vmlinux.h"
+
 #include "filelife.h"
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -17,8 +18,7 @@ struct event _event = {};
 // 哈希表 map：用于存储文件创建时间
 // key: dentry 指针
 // value: 创建时间戳
-struct
-{
+struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, 8192);
   __type(key, struct dentry *);
@@ -26,16 +26,14 @@ struct
 } start SEC(".maps");
 
 // 环形缓冲区 map：用于向用户空间传递事件数据
-struct
-{
+struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
   __uint(max_entries, 10000);
 } events SEC(".maps");
 
 // 通用的文件创建探测函数
 // 记录文件创建时间到 start map 中
-static __always_inline int probe_create(struct dentry *dentry)
-{
+static __always_inline int probe_create(struct dentry *dentry) {
   // 获取当前进程 ID
   u64 id = bpf_get_current_pid_tgid();
   u32 tgid = id >> 32;
@@ -52,41 +50,36 @@ static __always_inline int probe_create(struct dentry *dentry)
 }
 
 // 跟踪 vfs_create 系统调用
-SEC("kprobe/vfs_create")
-int BPF_KPROBE(vfs_create, struct user_namespace *mnt_userns,
-               struct inode *dir, struct dentry *dentry)
-{
+SEC("fentry/vfs_create")
+int BPF_KPROBE(vfs_create, struct user_namespace *mnt_userns, struct inode *dir,
+               struct dentry *dentry) {
   return probe_create(dentry);
 }
 
 // 跟踪 vfs_open 系统调用
 // 只关注带有特定标志的文件打开操作
-SEC("kprobe/vfs_open")
-int BPF_KPROBE(vfs_open, struct path *path, struct file *file)
-{
+SEC("fentry/vfs_open")
+int BPF_KPROBE(vfs_open, struct path *path, struct file *file) {
   struct dentry *dentry = BPF_CORE_READ(path, dentry);
   u32 f_mode = BPF_CORE_READ(file, f_mode);
-  if (!(f_mode & 0x100000))
-  {
+  if (!(f_mode & 0x100000)) {
     return 0;
   }
   return probe_create(dentry);
 };
 
 // 跟踪文件创建时的安全检查
-SEC("kprobe/security_inode_create")
+SEC("fentry/security_inode_create")
 int BPF_KPROBE(security_inode_create, struct inode *dir,
-               struct dentry *dentry)
-{
+               struct dentry *dentry) {
   return probe_create(dentry);
 }
 
 // 跟踪文件删除操作
 // 计算文件生命周期并发送事件到用户空间
-SEC("kprobe/vfs_unlink")
-int BPF_KPROBE(vfs_unlink, struct user_namespace *mnt_userns,
-               struct inode *dir, struct dentry *dentry)
-{
+SEC("fentry/vfs_unlink")
+int BPF_KPROBE(vfs_unlink, struct user_namespace *mnt_userns, struct inode *dir,
+               struct dentry *dentry) {
   u64 id = bpf_get_current_pid_tgid();
   struct event *event;
   const u8 *qs_name_ptr;

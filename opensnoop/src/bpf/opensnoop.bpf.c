@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2019 Facebook
 // Copyright (c) 2020 Netflix
-#include "opensnoop.h"
 #include "vmlinux.h"
+
+#include "opensnoop.h"
 #include <bpf/bpf_helpers.h>
 
 const volatile pid_t targ_pid = 0;
 const volatile pid_t targ_tgid = 0;
-const volatile uid_t targ_uid = 0;
+const volatile uid_t targ_uid = -1;
 const volatile bool targ_failed = false;
-const volatile struct event _event = {0};
+const volatile struct event _event = {};
 
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);

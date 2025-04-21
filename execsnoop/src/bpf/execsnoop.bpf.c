@@ -5,14 +5,18 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 
-const volatile bool filter_cg = false;
-const volatile bool ignore_failed = true;
-const volatile uid_t targ_uid = INVALID_UID;
-const volatile int max_args = DEFAULT_MAXARGS;
+// 全局配置变量
+const volatile bool filter_cg = false;         // 是否启用 cgroup 过滤
+const volatile bool ignore_failed = true;      // 是否忽略执行失败的进程
+const volatile uid_t targ_uid = INVALID_UID;   // 目标用户ID，用于过滤特定用户
+const volatile int max_args = DEFAULT_MAXARGS; // 最大参数数量
 
+// 空事件结构体，用于初始化
 const struct event empty_event = {};
 
-struct {
+// cgroup map定义，用于cgroup过滤功能
+struct
+{
   __uint(type, BPF_MAP_TYPE_CGROUP_ARRAY);
   __type(key, u32);
   __type(value, u32);
@@ -26,61 +30,78 @@ struct {
 /*   __type(value, struct event); */
 /* } execs SEC(".maps"); */
 
-struct {
+// Ring Buffer map定义，用于向用户空间传递数据
+struct
+{
   __uint(type, BPF_MAP_TYPE_RINGBUF);
-  __uint(max_entries, 1 << 20);
+  __uint(max_entries, 1 << 20); // 1MB 大小的 ring buffer
 } events SEC(".maps");
 
-static __always_inline bool valid_uid(uid_t uid) { return uid != INVALID_UID; }
+// 检查用户ID是否有效
+static __always_inline bool valid_uid(uid_t uid)
+{
+  return uid != INVALID_UID;
+}
 
+// 跟踪execve系统调用的入口点
 SEC("tracepoint/syscalls/sys_enter_execve")
-int tracepoint__syscalls__sys_enter_execve(
-    struct trace_event_raw_sys_enter *ctx) {
+int tracepoint__syscalls__sys_enter_execve(struct trace_event_raw_sys_enter *ctx)
+{
   u64 id;
   pid_t pid, tgid;
   unsigned int ret;
   struct event *event;
   struct task_struct *task;
-  const char **args = (const char **)(ctx->args[1]);
+  const char **args = (const char **)(ctx->args[1]); // 获取命令行参数数组
   const char *argp;
 
+  // 检查cgroup过滤条件
   if (filter_cg && !bpf_current_task_under_cgroup(&cgroup_map, 0))
     return 0;
 
+  // 获取当前进程的用户ID
   uid_t uid = (u32)bpf_get_current_uid_gid();
   int i;
 
+  // 检查用户ID过滤条件
   if (valid_uid(targ_uid) && targ_uid != uid)
     return 0;
 
+  // 获取进程ID信息
   id = bpf_get_current_pid_tgid();
   pid = (pid_t)id;
   tgid = id >> 32;
 
+  // 在ring buffer中预留事件空间
   event = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
   if (!event)
     return 0;
+
+  // 填充事件基本信息
   event->pid = tgid;
   event->uid = uid;
   task = (struct task_struct *)bpf_get_current_task();
-  event->ppid = (pid_t)BPF_CORE_READ(task, real_parent, tgid);
+  event->ppid = (pid_t)BPF_CORE_READ(task, real_parent, tgid); // 获取父进程ID
   event->args_count = 0;
   event->args_size = 0;
-  bpf_get_current_comm(&event->comm, sizeof(event->comm));
+  bpf_get_current_comm(&event->comm, sizeof(event->comm)); // 获取进程名
 
-  ret =
-      bpf_probe_read_user_str(event->args, ARGSIZE, (const char *)ctx->args[0]);
-  if (ret <= ARGSIZE) {
+  // 读取程序路径（第一个参数）
+  ret = bpf_probe_read_user_str(event->args, ARGSIZE, (const char *)ctx->args[0]);
+  if (ret <= ARGSIZE)
+  {
     event->args_size += ret;
-  } else {
-    /* write an empty string */
+  }
+  else
+  {
     event->args[0] = '\0';
     event->args_size++;
   }
-
   event->args_count++;
 
-  for (i = 1; i < TOTAL_MAX_ARGS && i < max_args; i++) {
+  // 读取命令行参数
+  for (i = 1; i < TOTAL_MAX_ARGS && i < max_args; i++)
+  {
     bpf_probe_read_user(&argp, sizeof(argp), &args[i]);
     if (!argp)
       goto submit;
@@ -88,22 +109,23 @@ int tracepoint__syscalls__sys_enter_execve(
     if (event->args_size > LAST_ARG)
       goto submit;
 
-    ret =
-        bpf_probe_read_user_str(&event->args[event->args_size], ARGSIZE, argp);
+    ret = bpf_probe_read_user_str(&event->args[event->args_size], ARGSIZE, argp);
     if (ret > ARGSIZE)
       goto submit;
 
     event->args_count++;
     event->args_size += ret;
   }
-  /* try to read one more argument to check if there is one */
+
+  // 检查是否还有更多参数
   bpf_probe_read_user(&argp, sizeof(argp), &args[max_args]);
   if (!argp)
     goto submit;
 
-  /* pointer to max_args+1 isn't null, asume we have more arguments */
-  event->args_count++;
+  event->args_count++; // 标记还有更多参数未记录
+
 submit:
+  // 提交事件到ring buffer
   bpf_ringbuf_submit(event, 0);
   return 0;
 }
@@ -142,4 +164,5 @@ submit:
 /*   return 0; */
 /* } */
 
+// 许可证声明
 char LICENSE[] SEC("license") = "GPL";

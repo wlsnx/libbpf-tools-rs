@@ -4,6 +4,8 @@ use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
     RingBufferBuilder,
 };
+use mio::{event::Source, unix::SourceFd};
+use tokio::io::unix::AsyncFd;
 
 use std::time::Duration;
 use std::{ffi::CStr, mem::MaybeUninit};
@@ -52,6 +54,17 @@ struct Command {
 fn handle_event(data: &[u8], opts: &Command) -> i32 {
     let event: types::event = unsafe { *(data.as_ptr().cast()) };
 
+    let comm = CStr::from_bytes_until_nul(&event.comm)
+        .unwrap()
+        .to_string_lossy();
+    let fname = CStr::from_bytes_until_nul(&event.fname)
+        .unwrap()
+        .to_string_lossy();
+
+    if opts.name.clone().is_some_and(|name| !comm.contains(&name)) {
+        return 0;
+    }
+
     if opts.timestamp {
         let now = chrono::Local::now();
         print!("{:<8} ", now);
@@ -59,13 +72,6 @@ fn handle_event(data: &[u8], opts: &Command) -> i32 {
     if opts.print_uid {
         print!("{:<7} ", event.uid);
     }
-
-    let comm = CStr::from_bytes_until_nul(&event.comm)
-        .unwrap()
-        .to_string_lossy();
-    let fname = CStr::from_bytes_until_nul(&event.fname)
-        .unwrap()
-        .to_string_lossy();
 
     let fd;
     let err;
@@ -86,7 +92,8 @@ fn handle_event(data: &[u8], opts: &Command) -> i32 {
     0
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let opts = Command::parse();
 
     let mut skel_builder = OpensnoopSkelBuilder::default();
@@ -128,7 +135,14 @@ fn main() -> Result<()> {
         print!("{:<8} PATH ", "FLAGS");
     }
 
+    let fd = ringbuf.epoll_fd();
+    let async_fd = AsyncFd::new(fd)?;
     loop {
-        ringbuf.poll(Duration::MAX)?;
+        let ready_guard = async_fd.readable().await?;
+        let ready = ready_guard.ready();
+        if ready.is_readable() {
+            println!("new event");
+            ringbuf.poll(Duration::MAX)?;
+        }
     }
 }

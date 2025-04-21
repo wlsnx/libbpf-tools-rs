@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* Copyright (c) 2021 Facebook */
 #include "vmlinux.h"
+
 #include "bashreadline.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
@@ -25,8 +26,7 @@ int BPF_KRETPROBE(printret, const void *ret) {
     return 0;
 
   bpf_get_current_comm(&comm, sizeof(comm));
-  if (comm[0] != 'b' || comm[1] != 'a' || comm[2] != 's' || comm[3] != 'h' ||
-      comm[4] != 0)
+  if (bpf_strncmp(comm, TASK_COMM_LEN, "bash") != 0)
     return 0;
 
   pid = bpf_get_current_pid_tgid() >> 32;
