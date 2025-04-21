@@ -137,8 +137,6 @@ async fn main() -> Result<()> {
     }
 
     let asyncbuf = AsyncBuffer::new(ringbuf)?;
-    // let fd = ringbuf.epoll_fd();
-    // let async_fd = AsyncFd::new(fd)?;
     loop {
         asyncbuf.readable().await?;
         asyncbuf.poll(Duration::MAX)?;
